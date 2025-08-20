@@ -12,6 +12,7 @@ java {
 dependencies {
     implementation(project(":shared"))
     implementation(libs.kotlin.stdlib)
+    implementation(libs.kotlinx.serialization.json)
     
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit5)

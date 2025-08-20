@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun MessageInput(
     groupId: String,
+    onMessageSent: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var messageText by remember { mutableStateOf("") }
@@ -36,7 +37,7 @@ fun MessageInput(
         
         Button(
             onClick = { 
-                // TODO: Implement message sending
+                onMessageSent(messageText)
                 messageText = ""
             },
             enabled = groupId.isNotEmpty() && messageText.isNotEmpty()

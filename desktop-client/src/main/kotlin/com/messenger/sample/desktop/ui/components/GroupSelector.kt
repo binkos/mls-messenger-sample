@@ -9,39 +9,39 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun GroupSelector(
     selectedGroupId: String,
+    groups: List<com.messenger.sample.shared.models.Group>,
     onGroupSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val groups = remember { listOf("Group 1", "Group 2", "Group 3") } // TODO: Replace with real data
     
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded },
-        modifier = modifier
-    ) {
-        OutlinedTextField(
-            value = groups.find { it == selectedGroupId } ?: "Select a group",
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Group") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor()
-        )
-        
-        ExposedDropdownMenu(
+            ExposedDropdownMenuBox(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onExpandedChange = { expanded = !expanded },
+            modifier = modifier
         ) {
-            groups.forEach { group ->
-                DropdownMenuItem(
-                    text = { Text(group) },
-                    onClick = {
-                        onGroupSelected(group)
-                        expanded = false
-                    }
-                )
+            OutlinedTextField(
+                value = groups.find { it.id == selectedGroupId }?.name ?: "Select a group",
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Group") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.menuAnchor()
+            )
+            
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                groups.forEach { group ->
+                    DropdownMenuItem(
+                        text = { Text(group.name) },
+                        onClick = {
+                            onGroupSelected(group.id)
+                            expanded = false
+                        }
+                    )
+                }
             }
         }
-    }
 }

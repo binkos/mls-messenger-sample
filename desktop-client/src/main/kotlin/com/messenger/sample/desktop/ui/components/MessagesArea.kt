@@ -12,16 +12,9 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun MessagesArea(
     groupId: String,
+    messages: List<com.messenger.sample.shared.models.Message>,
     modifier: Modifier = Modifier
 ) {
-    val messages = remember { 
-        listOf(
-            "Hello from User 1",
-            "Hi there!",
-            "How are you doing?",
-            "Great, thanks!"
-        )
-    } // TODO: Replace with real data
     
     Card(
         modifier = modifier,
@@ -61,17 +54,26 @@ fun MessagesArea(
 }
 
 @Composable
-private fun MessageItem(message: String) {
+private fun MessageItem(message: com.messenger.sample.shared.models.Message) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
-        Text(
-            text = message,
-            modifier = Modifier.padding(12.dp),
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Text(
+                text = message.senderId,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = message.content,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
     }
 }

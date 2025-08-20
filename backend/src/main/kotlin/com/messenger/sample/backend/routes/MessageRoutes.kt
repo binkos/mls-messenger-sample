@@ -40,5 +40,25 @@ fun Route.configureMessageRoutes() {
             val savedGroup = messageService.createGroup(group)
             call.respond(HttpStatusCode.Created, savedGroup)
         }
+        
+        get("/{groupId}") {
+            val groupId = call.parameters["groupId"] ?: ""
+            val group = messageService.getGroupInfo(groupId)
+            if (group != null) {
+                call.respond(group)
+            } else {
+                call.respond(HttpStatusCode.NotFound, "Group not found")
+            }
+        }
+        
+        post("/{groupId}/join") {
+            val groupId = call.parameters["groupId"] ?: ""
+            val success = messageService.joinGroup(groupId)
+            if (success) {
+                call.respond(HttpStatusCode.OK, mapOf("status" to "joined", "groupId" to groupId))
+            } else {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Failed to join group"))
+            }
+        }
     }
 }
