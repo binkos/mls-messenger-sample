@@ -1,14 +1,12 @@
 package com.messenger.sample.backend.services
 
 import com.messenger.sample.backend.storage.InMemoryStorage
-import com.messenger.sample.native.MlsNativeWrapper
 import com.messenger.sample.shared.models.Message
 import com.messenger.sample.shared.models.Group
 import java.util.UUID
 
 class MessageService {
     private val storage = InMemoryStorage()
-    private val mlsWrapper = MlsNativeWrapper()
     
     fun getMessages(groupId: String): List<Message> {
         return if (groupId.isNotEmpty()) {
@@ -24,20 +22,10 @@ class MessageService {
             timestamp = System.currentTimeMillis()
         )
         
-        // Encrypt the message content using MLS
-        val encryptedContent = try {
-            mlsWrapper.encryptMessage(message.groupId, message.content)
-        } catch (e: Exception) {
-            // Fallback to plain text if MLS encryption fails
-            message.content
-        }
-        
-        val encryptedMessage = messageWithId.copy(
-            encryptedContent = encryptedContent
-        )
-        
-        storage.saveMessage(encryptedMessage)
-        return encryptedMessage
+        // Store the message as-is - encryption should happen on client side
+        // Server should never see plain text content
+        storage.saveMessage(messageWithId)
+        return messageWithId
     }
     
     fun getGroups(): List<Group> {
@@ -45,34 +33,23 @@ class MessageService {
     }
     
     fun createGroup(group: Group): Group {
-        // Create MLS group
-        val mlsGroup = try {
-            mlsWrapper.createGroup()
-        } catch (e: Exception) {
-            // Fallback to regular group creation
-            group.copy(
-                id = UUID.randomUUID().toString(),
-                createdAt = System.currentTimeMillis()
-            )
-        }
+        // Create regular group - MLS operations happen on client side
+        val newGroup = group.copy(
+            id = UUID.randomUUID().toString(),
+            createdAt = System.currentTimeMillis()
+        )
         
-        storage.saveGroup(mlsGroup)
-        return mlsGroup
+        storage.saveGroup(newGroup)
+        return newGroup
     }
     
     fun joinGroup(groupId: String): Boolean {
-        return try {
-            mlsWrapper.joinGroup(groupId)
-        } catch (e: Exception) {
-            false
-        }
+        // Simple group joining - no MLS involved
+        // groupId parameter kept for API consistency
+        return true
     }
     
     fun getGroupInfo(groupId: String): Group? {
-        return try {
-            mlsWrapper.getGroupInfo(groupId) ?: storage.getGroupById(groupId)
-        } catch (e: Exception) {
-            storage.getGroupById(groupId)
-        }
+        return storage.getGroupById(groupId)
     }
 }

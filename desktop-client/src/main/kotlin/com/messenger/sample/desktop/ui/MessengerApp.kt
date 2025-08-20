@@ -108,6 +108,9 @@ fun MessengerApp() {
             MessagesArea(
                 groupId = selectedGroupId,
                 messages = messages,
+                onDecryptMessage = { encryptedContent ->
+                    backendService.decryptMessage(encryptedContent)
+                },
                 modifier = Modifier.weight(1f)
             )
             
@@ -122,7 +125,7 @@ fun MessengerApp() {
                             val message = Message(
                                 id = "",
                                 senderId = "user_${System.currentTimeMillis() % 1000}",
-                                content = messageText,
+                                content = messageText, // Plain text - will be encrypted by BackendService
                                 timestamp = System.currentTimeMillis(),
                                 groupId = selectedGroupId
                             )

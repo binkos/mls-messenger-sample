@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 fun MessagesArea(
     groupId: String,
     messages: List<com.messenger.sample.shared.models.Message>,
+    onDecryptMessage: (String) -> String,
     modifier: Modifier = Modifier
 ) {
     
@@ -45,7 +46,7 @@ fun MessagesArea(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(messages) { message ->
-                        MessageItem(message = message)
+                        MessageItem(message = message, onDecryptMessage = onDecryptMessage)
                     }
                 }
             }
@@ -54,7 +55,10 @@ fun MessagesArea(
 }
 
 @Composable
-private fun MessageItem(message: com.messenger.sample.shared.models.Message) {
+private fun MessageItem(
+    message: com.messenger.sample.shared.models.Message,
+    onDecryptMessage: (String) -> String
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -70,7 +74,7 @@ private fun MessageItem(message: com.messenger.sample.shared.models.Message) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = message.content,
+                text = onDecryptMessage(message.content),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp)
             )

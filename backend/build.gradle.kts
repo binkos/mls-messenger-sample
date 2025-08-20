@@ -17,7 +17,6 @@ application {
 
 dependencies {
     implementation(project(":shared"))
-    implementation(project(":native-wrapper"))
     
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
