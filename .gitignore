@@ -1,0 +1,61 @@
+# Windows thumbnail db
+Thumbs.db
+
+# OSX files
+.DS_Store
+
+# built application files
+*.apk
+*.ap_
+
+# files for the dex VM
+*.dex
+
+# Java class files
+*.class
+
+# generated files
+bin/
+gen/
+build/
+
+#fastlane
+fastlane/README.md
+fastlane/report.xml
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Eclipse project files
+.classpath
+.project
+
+# Android Studio
+.gradle
+/*/local.properties
+/*/out
+/*/*/build
+build
+/*/*/production
+*.iml
+*.iws
+*.ipr
+*~
+*.swp
+dev.properties
+
+*.mdb
+objectbox-jni-windows-x64.dll
+libobjectbox-jni-macos-x64.dylib
+StoredCredential
+*.sav
+
+# For code style
+!.idea/
+.idea/*
+!.idea/codeStyles
+.idea/codeStyles/*
+!.idea/codeStyles/Project.xml
+
+# Crashlytics
+/true/crashlytics-build.properties
