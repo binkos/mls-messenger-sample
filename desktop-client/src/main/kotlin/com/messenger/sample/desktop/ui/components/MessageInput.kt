@@ -9,8 +9,8 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun MessageInput(
-    groupId: String,
     onMessageSent: (String) -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var messageText by remember { mutableStateOf("") }
@@ -25,22 +25,27 @@ fun MessageInput(
             onValueChange = { messageText = it },
             label = { Text("Type your message") },
             modifier = Modifier.weight(1f),
-            enabled = groupId.isNotEmpty(),
+            enabled = enabled,
             placeholder = { 
-                if (groupId.isEmpty()) {
-                    Text("Select a group first")
+                if (!enabled) {
+                    Text("Select a chat first")
                 } else {
                     Text("Type your message")
                 }
-            }
+            },
+            singleLine = false,
+            minLines = 1,
+            maxLines = 4
         )
         
         Button(
             onClick = { 
-                onMessageSent(messageText)
-                messageText = ""
+                if (messageText.isNotEmpty()) {
+                    onMessageSent(messageText)
+                    messageText = ""
+                }
             },
-            enabled = groupId.isNotEmpty() && messageText.isNotEmpty()
+            enabled = enabled && messageText.isNotEmpty()
         ) {
             Text("Send")
         }
