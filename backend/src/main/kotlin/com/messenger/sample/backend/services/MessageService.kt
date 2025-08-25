@@ -34,8 +34,9 @@ class MessageService {
     
     fun createGroup(group: Group): Group {
         // Create regular group - MLS operations happen on client side
+        // Preserve client-provided ID if it exists (for MLS groups)
         val newGroup = group.copy(
-            id = UUID.randomUUID().toString(),
+            id = if (group.id.isNotEmpty()) group.id else UUID.randomUUID().toString(),
             createdAt = System.currentTimeMillis()
         )
         
