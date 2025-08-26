@@ -1,15 +1,27 @@
 package com.messenger.sample.desktop.ui.components
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.AlertDialog
+import androidx.compose.material.Button
+import androidx.compose.material.OutlinedButton
+import androidx.compose.material.Text
+import androidx.compose.material.TextButton
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.messenger.sample.desktop.ui.models.JoinRequest
+import com.messenger.sample.shared.models.JoinRequest
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun JoinRequestDialog(
@@ -20,7 +32,7 @@ fun JoinRequestDialog(
 ) {
     val timeFormat = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
     val requestTime = remember { timeFormat.format(Date(joinRequest.timestamp)) }
-    
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -39,7 +51,7 @@ fun JoinRequestDialog(
                     text = "${joinRequest.userName} wants to join your group",
                     style = MaterialTheme.typography.bodyLarge
                 )
-                
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -55,7 +67,7 @@ fun JoinRequestDialog(
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Medium
                         )
-                        
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -71,7 +83,7 @@ fun JoinRequestDialog(
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -87,7 +99,7 @@ fun JoinRequestDialog(
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -102,7 +114,7 @@ fun JoinRequestDialog(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        
+
                         Text(
                             text = "Key Package:",
                             style = MaterialTheme.typography.bodyMedium,
@@ -126,7 +138,7 @@ fun JoinRequestDialog(
                 ) {
                     Text("Decline")
                 }
-                
+
                 Button(
                     onClick = { onAccept(joinRequest) }
                 ) {

@@ -1,30 +1,27 @@
 package com.messenger.sample
 
-import com.messenger.sample.services.*
-import io.ktor.server.application.*
-import io.ktor.server.engine.*
-import io.ktor.server.netty.*
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
-import io.ktor.server.request.*
-import io.ktor.http.*
+import com.messenger.sample.services.ServerStorage
+import com.messenger.sample.shared.models.ChatMessage
+import com.messenger.sample.shared.models.CreateChatRequest
+import com.messenger.sample.shared.models.CreateJoinRequestRequest
+import com.messenger.sample.shared.models.JoinRequest
+import com.messenger.sample.shared.models.SendMessageRequest
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.call
+import io.ktor.server.application.install
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import io.ktor.server.routing.routing
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-@Serializable
-data class CreateChatRequest(val name: String)
-
-@Serializable
-data class SendMessageRequest(val userName: String, val message: String)
-
-@Serializable
-data class CreateJoinRequestRequest(
-    val userName: String,
-    val keyPackage: String,
-    val groupId: String
-)
 
 fun main() {
     embeddedServer(Netty, port = 8080) {

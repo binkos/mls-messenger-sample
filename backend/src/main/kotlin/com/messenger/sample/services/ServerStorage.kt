@@ -1,35 +1,12 @@
 package com.messenger.sample.services
 
+import com.messenger.sample.shared.models.ChatGroup
+import com.messenger.sample.shared.models.ChatMessage
+import com.messenger.sample.shared.models.JoinRequest
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * Data models for the server storage
- */
-data class ChatMessage(
-    val id: String,
-    val userName: String,
-    val message: String,
-    val timestamp: Long,
-    val isOwnMessage: Boolean = false
-)
-
-data class ChatGroup(
-    val id: String,
-    val name: String,
-    val lastMessage: String? = null,
-    val lastMessageTime: Long? = null,
-    val unreadCount: Int = 0
-)
-
-data class JoinRequest(
-    val id: String,
-    val userName: String,
-    val keyPackage: String,
-    val groupId: String,
-    val timestamp: Long
-)
 
 /**
  * Simple in-memory server storage for chats and messages.
