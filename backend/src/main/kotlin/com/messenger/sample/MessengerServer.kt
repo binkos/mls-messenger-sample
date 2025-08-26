@@ -155,7 +155,7 @@ fun main() {
                     }
 
                     if (foundRequest != null && foundChatId != null) {
-                        ServerStorage.removeJoinRequest(foundChatId!!, requestId)
+                        ServerStorage.removeJoinRequest(foundChatId, requestId)
                         call.respond(HttpStatusCode.OK, "Join request accepted")
                     } else {
                         call.respond(HttpStatusCode.NotFound, "Join request not found")
@@ -183,7 +183,7 @@ fun main() {
                     }
 
                     if (foundRequest != null && foundChatId != null) {
-                        ServerStorage.removeJoinRequest(foundChatId!!, requestId)
+                        ServerStorage.removeJoinRequest(foundChatId, requestId)
                         call.respond(HttpStatusCode.OK, "Join request declined")
                     } else {
                         call.respond(HttpStatusCode.NotFound, "Join request not found")

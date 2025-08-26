@@ -21,110 +21,6 @@ object ServerStorage {
     private val joinRequests = ConcurrentHashMap<String, MutableList<JoinRequest>>()
     private val userChatStatuses = ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
     
-    init {
-        // Initialize with sample data
-        setupSampleData()
-    }
-    
-    private fun setupSampleData() {
-        // Sample chats
-        chats["chat1"] = ChatGroup(
-            id = "chat1",
-            name = "General Chat",
-            lastMessage = "Hello everyone!",
-            lastMessageTime = System.currentTimeMillis() - 300000,
-            unreadCount = 2
-        )
-        
-        chats["chat2"] = ChatGroup(
-            id = "chat2",
-            name = "Project Team",
-            lastMessage = "Meeting at 3 PM",
-            lastMessageTime = System.currentTimeMillis() - 600000,
-            unreadCount = 0
-        )
-        
-        chats["chat3"] = ChatGroup(
-            id = "chat3",
-            name = "Random",
-            lastMessage = "How's it going?",
-            lastMessageTime = System.currentTimeMillis() - 900000,
-            unreadCount = 1
-        )
-        
-        // Sample messages for chat1
-        messages["chat1"] = mutableListOf(
-            ChatMessage(
-                id = "msg1",
-                userName = "Alice",
-                message = "Hello everyone! How's the project going?",
-                timestamp = System.currentTimeMillis() - 300000,
-                isOwnMessage = false
-            ),
-            ChatMessage(
-                id = "msg2",
-                userName = "You",
-                message = "Hi Alice! Everything is on track. We should have the first prototype ready by Friday.",
-                timestamp = System.currentTimeMillis() - 240000,
-                isOwnMessage = true
-            ),
-            ChatMessage(
-                id = "msg3",
-                userName = "Bob",
-                message = "Great! I've finished the backend API. Ready for integration testing.",
-                timestamp = System.currentTimeMillis() - 180000,
-                isOwnMessage = false
-            ),
-            ChatMessage(
-                id = "msg4",
-                userName = "Alice",
-                message = "Perfect! Let's schedule a demo for the team.",
-                timestamp = System.currentTimeMillis() - 120000,
-                isOwnMessage = false
-            )
-        )
-        
-        // Sample messages for chat2
-        messages["chat2"] = mutableListOf(
-            ChatMessage(
-                id = "msg5",
-                userName = "Bob",
-                message = "Team meeting scheduled for 3 PM today.",
-                timestamp = System.currentTimeMillis() - 600000,
-                isOwnMessage = false
-            ),
-            ChatMessage(
-                id = "msg6",
-                userName = "You",
-                message = "I'll prepare the presentation slides.",
-                timestamp = System.currentTimeMillis() - 540000,
-                isOwnMessage = true
-            )
-        )
-        
-        // Sample messages for chat3
-        messages["chat3"] = mutableListOf(
-            ChatMessage(
-                id = "msg7",
-                userName = "Charlie",
-                message = "How's it going everyone?",
-                timestamp = System.currentTimeMillis() - 900000,
-                isOwnMessage = false
-            )
-        )
-        
-        // Sample join request
-        joinRequests["chat1"] = mutableListOf(
-            JoinRequest(
-                id = "req1",
-                userName = "Charlie",
-                keyPackage = "eyJraWQiOiJ0ZXN0IiwidHlwZSI6ImtleV9wYWNrYWdlIiwidmVyc2lvbiI6MSwicGF5bG9hZCI6InRlc3QifQ==",
-                groupId = "chat1",
-                timestamp = System.currentTimeMillis() - 60000
-            )
-        )
-    }
-    
     suspend fun getAllChats(): List<ChatGroup> = mutex.withLock {
         chats.values.toList()
     }
@@ -151,16 +47,16 @@ object ServerStorage {
         }
     }
     
-    suspend fun getJoinRequests(chatId: String): List<JoinRequest> = mutex.withLock {
-        joinRequests[chatId]?.toList() ?: emptyList()
+    suspend fun getJoinRequests(chatId: String): List<JoinRequest> {
+        return joinRequests[chatId]?.toList() ?: emptyList()
     }
     
-    suspend fun addJoinRequest(joinRequest: JoinRequest) = mutex.withLock {
+    suspend fun addJoinRequest(joinRequest: JoinRequest) {
         val requests = joinRequests.getOrPut(joinRequest.groupId) { mutableListOf() }
         requests.add(joinRequest)
     }
     
-    suspend fun removeJoinRequest(chatId: String, requestId: String) = mutex.withLock {
+    suspend fun removeJoinRequest(chatId: String, requestId: String) {
         joinRequests[chatId]?.removeAll { it.id == requestId }
     }
     
@@ -175,6 +71,7 @@ object ServerStorage {
         )
         chats[chatId] = newChat
         messages[chatId] = mutableListOf()
+        joinRequests[chatId] = mutableListOf()
         
         // Mark the creator as a member of the chat
         if (creatorUserId != null) {
@@ -193,17 +90,17 @@ object ServerStorage {
     /**
      * Get user status for all chats
      */
-    suspend fun getUserChatStatuses(userId: String): List<UserChatStatus> = mutex.withLock {
-        userChatStatuses[userId]?.toList() ?: emptyList()
+    suspend fun getUserChatStatuses(userId: String): List<UserChatStatus> {
+        return userChatStatuses[userId]?.toList() ?: emptyList()
     }
     
     /**
      * Get user status for a specific chat
      */
-    suspend fun getUserChatStatus(userId: String, chatId: String): ChatMembershipStatus = mutex.withLock {
+    suspend fun getUserChatStatus(userId: String, chatId: String): ChatMembershipStatus {
         val userStatuses = userChatStatuses[userId] ?: emptyList()
         val status = userStatuses.find { it.chatId == chatId }
-        status?.status ?: ChatMembershipStatus.NOT_MEMBER
+        return status?.status ?: ChatMembershipStatus.NOT_MEMBER
     }
     
     /**
@@ -234,11 +131,11 @@ object ServerStorage {
     /**
      * Get chats with user status for a specific user
      */
-    suspend fun getChatsWithUserStatus(userId: String): List<com.messenger.sample.shared.models.ChatGroupWithUserStatus> = mutex.withLock {
+    suspend fun getChatsWithUserStatus(userId: String): List<com.messenger.sample.shared.models.ChatGroupWithUserStatus> {
         val allChats = chats.values.toList()
         val userStatuses = userChatStatuses[userId] ?: emptyList()
         
-        allChats.map { chat ->
+        return allChats.map { chat ->
             val userStatus = userStatuses.find { it.chatId == chat.id }?.status ?: ChatMembershipStatus.NOT_MEMBER
             com.messenger.sample.shared.models.ChatGroupWithUserStatus(
                 id = chat.id,

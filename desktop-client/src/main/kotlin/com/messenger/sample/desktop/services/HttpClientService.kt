@@ -68,6 +68,7 @@ class HttpClientService {
     // Polling jobs
     private var chatsPollingJob: Job? = null
     private var messagesPollingJob: Job? = null
+    private var joinRequestsPollingJob: Job? = null
 
     // Server configuration
     private val serverBaseUrl = "http://localhost:8080"
@@ -133,6 +134,41 @@ class HttpClientService {
                     println("❌ Failed to fetch messages: ${e.message}")
                 }
                 delay(2000) // 2 seconds
+            }
+        }
+        
+        // Poll join requests for member chats every 3 seconds
+        joinRequestsPollingJob = coroutineScope.launch {
+            while (isActive) {
+                try {
+                    val currentChatsWithStatus = _chatsWithStatus.value
+                    val memberChats = currentChatsWithStatus.filter { it.userStatus == ChatMembershipStatus.MEMBER }
+                    val newJoinRequests = mutableMapOf<String, List<JoinRequest>>()
+                    
+                    memberChats.forEach { chat ->
+                        try {
+                            val response = httpClient.get("$serverBaseUrl/api/chats/${chat.id}/join-requests") {
+                                accept(ContentType.Application.Json)
+                            }
+                            if (response.status.isSuccess()) {
+                                val chatJoinRequests = response.body<List<JoinRequest>>()
+                                if (chatJoinRequests.isNotEmpty()) {
+                                    newJoinRequests[chat.id] = chatJoinRequests
+                                }
+                            }
+                        } catch (e: Exception) {
+                            println("❌ Failed to fetch join requests for chat ${chat.id}: ${e.message}")
+                        }
+                    }
+                    
+                    _joinRequests.value = newJoinRequests
+                    if (newJoinRequests.isNotEmpty()) {
+                        println("✅ Fetched join requests for ${newJoinRequests.size} chats from server")
+                    }
+                } catch (e: Exception) {
+                    println("❌ Failed to fetch join requests: ${e.message}")
+                }
+                delay(3000) // 3 seconds
             }
         }
     }
@@ -348,6 +384,7 @@ class HttpClientService {
     fun stop() {
         chatsPollingJob?.cancel()
         messagesPollingJob?.cancel()
+        joinRequestsPollingJob?.cancel()
         coroutineScope.cancel()
         httpClient.close()
         _currentDesktopUserId.value?.client?.destroy()
