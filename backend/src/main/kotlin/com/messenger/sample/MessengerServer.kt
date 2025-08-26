@@ -135,62 +135,6 @@ fun main() {
                 }
             }
 
-            // Accept join request
-            post("/api/join-requests/{requestId}/accept") {
-                val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    // Find the join request first
-                    val allChats = ServerStorage.getAllChats()
-                    var foundRequest: JoinRequest? = null
-                    var foundChatId: String? = null
-
-                    for (chat in allChats) {
-                        val requests = ServerStorage.getJoinRequests(chat.id)
-                        val request = requests.find { it.id == requestId }
-                        if (request != null) {
-                            foundRequest = request
-                            foundChatId = chat.id
-                            break
-                        }
-                    }
-
-                    if (foundRequest != null && foundChatId != null) {
-                        ServerStorage.removeJoinRequest(foundChatId, requestId)
-                        call.respond(HttpStatusCode.OK, "Join request accepted")
-                    } else {
-                        call.respond(HttpStatusCode.NotFound, "Join request not found")
-                    }
-                }
-            }
-
-            // Decline join request
-            post("/api/join-requests/{requestId}/decline") {
-                val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    // Find the join request first
-                    val allChats = ServerStorage.getAllChats()
-                    var foundRequest: JoinRequest? = null
-                    var foundChatId: String? = null
-
-                    for (chat in allChats) {
-                        val requests = ServerStorage.getJoinRequests(chat.id)
-                        val request = requests.find { it.id == requestId }
-                        if (request != null) {
-                            foundRequest = request
-                            foundChatId = chat.id
-                            break
-                        }
-                    }
-
-                    if (foundRequest != null && foundChatId != null) {
-                        ServerStorage.removeJoinRequest(foundChatId, requestId)
-                        call.respond(HttpStatusCode.OK, "Join request declined")
-                    } else {
-                        call.respond(HttpStatusCode.NotFound, "Join request not found")
-                    }
-                }
-            }
-
             // Mark chat as read
             post("/api/chats/{chatId}/mark-read") {
                 val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
@@ -266,8 +210,8 @@ fun main() {
                     }
 
                     if (foundRequest != null && foundChatId != null) {
-                        val chatId = foundChatId!! // Non-null assertion
-                        val request = foundRequest!! // Non-null assertion
+                        val chatId = foundChatId // Non-null assertion
+                        val request = foundRequest // Non-null assertion
                         ServerStorage.removeJoinRequest(chatId, requestId)
 
                         // Update user status to MEMBER

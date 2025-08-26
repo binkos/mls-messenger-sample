@@ -21,19 +21,19 @@ object ServerStorage {
     private val joinRequests = ConcurrentHashMap<String, MutableList<JoinRequest>>()
     private val userChatStatuses = ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
     
-    suspend fun getAllChats(): List<ChatGroup> = mutex.withLock {
-        chats.values.toList()
+    suspend fun getAllChats(): List<ChatGroup> {
+        return chats.values.toList()
     }
     
-    suspend fun getChat(chatId: String): ChatGroup? = mutex.withLock {
-        chats[chatId]
+    suspend fun getChat(chatId: String): ChatGroup? {
+        return chats[chatId]
     }
     
-    suspend fun getMessages(chatId: String): List<ChatMessage> = mutex.withLock {
-        messages[chatId]?.toList() ?: emptyList()
+    suspend fun getMessages(chatId: String): List<ChatMessage> {
+        return messages[chatId]?.toList() ?: emptyList()
     }
     
-    suspend fun addMessage(chatId: String, message: ChatMessage) = mutex.withLock {
+    suspend fun addMessage(chatId: String, message: ChatMessage) {
         val chatMessages = messages.getOrPut(chatId) { mutableListOf() }
         chatMessages.add(message)
         
@@ -81,7 +81,7 @@ object ServerStorage {
         newChat
     }
     
-    suspend fun markChatAsRead(chatId: String) = mutex.withLock {
+    suspend fun markChatAsRead(chatId: String) {
         chats[chatId]?.let { chat ->
             chats[chatId] = chat.copy(unreadCount = 0)
         }
@@ -107,6 +107,8 @@ object ServerStorage {
      * Add or update user status for a chat
      */
     suspend fun setUserChatStatus(userId: String, chatId: String, status: ChatMembershipStatus) {
+        println("🔧 setUserChatStatus called: userId=$userId, chatId=$chatId, status=$status")
+        
         val userStatuses = userChatStatuses.getOrPut(userId) { mutableListOf() }
         val existingStatus = userStatuses.find { it.chatId == chatId }
         
@@ -117,15 +119,21 @@ object ServerStorage {
                 status = status,
                 joinedAt = if (status == ChatMembershipStatus.MEMBER) System.currentTimeMillis() else existingStatus.joinedAt
             )
+            println("✅ Updated existing status: $existingStatus -> ${userStatuses[index]}")
         } else {
             // Add new status
-            userStatuses.add(UserChatStatus(
+            val newStatus = UserChatStatus(
                 userId = userId,
                 chatId = chatId,
                 status = status,
                 joinedAt = if (status == ChatMembershipStatus.MEMBER) System.currentTimeMillis() else null
-            ))
+            )
+            userStatuses.add(newStatus)
+            println("✅ Added new status: $newStatus")
         }
+        
+        // Debug: print current statuses for this user
+        println("🔍 Current statuses for user $userId: ${userStatuses}")
     }
     
     /**
