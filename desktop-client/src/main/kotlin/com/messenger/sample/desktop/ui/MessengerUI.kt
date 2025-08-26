@@ -10,202 +10,67 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.messenger.sample.desktop.ui.components.*
 import com.messenger.sample.desktop.ui.models.*
+import com.messenger.sample.desktop.services.HttpClientService
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @Composable
 fun MessengerUI(
     modifier: Modifier = Modifier
 ) {
-    // Sample data for demonstration
     var selectedChatId by remember { mutableStateOf<String?>(null) }
     var showJoinRequestDialog by remember { mutableStateOf(false) }
     var currentJoinRequest by remember { mutableStateOf<JoinRequest?>(null) }
+    var showUserIdDialog by remember { mutableStateOf(true) }
+    var currentUserId by remember { mutableStateOf("") }
     
-    val sampleChats = remember {
-        listOf(
-            ChatGroup(
-                id = "chat1",
-                name = "General Chat",
-                lastMessage = "Hello everyone!",
-                lastMessageTime = System.currentTimeMillis() - 300000,
-                unreadCount = 2
-            ),
-            ChatGroup(
-                id = "chat2",
-                name = "Project Team",
-                lastMessage = "Meeting at 3 PM",
-                lastMessageTime = System.currentTimeMillis() - 600000,
-                unreadCount = 0
-            ),
-            ChatGroup(
-                id = "chat3",
-                name = "Random",
-                lastMessage = "How's it going?",
-                lastMessageTime = System.currentTimeMillis() - 900000,
-                unreadCount = 1
-            )
-        )
+    val clientService = remember { HttpClientService() }
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Collect data from ClientService
+    val chats by clientService.chats.collectAsState()
+    val messages by clientService.messages.collectAsState()
+    val joinRequests by clientService.joinRequests.collectAsState()
+    
+    // Mark chat as read when selected
+    LaunchedEffect(selectedChatId) {
+        selectedChatId?.let { chatId ->
+            delay(1000) // Small delay to ensure UI is updated
+            clientService.markChatAsRead(chatId)
+        }
     }
     
-    val sampleMessages = remember {
-        listOf(
-            ChatMessage(
-                id = "msg1",
-                userName = "Alice",
-                message = "Hello everyone! How's the project going?",
-                timestamp = System.currentTimeMillis() - 300000,
-                isOwnMessage = false
-            ),
-            ChatMessage(
-                id = "msg2",
-                userName = "You",
-                message = "Hi Alice! Everything is on track. We should have the first prototype ready by Friday.",
-                timestamp = System.currentTimeMillis() - 240000,
-                isOwnMessage = true
-            ),
-            ChatMessage(
-                id = "msg3",
-                userName = "Bob",
-                message = "Great! I've finished the backend API. Ready for integration testing.",
-                timestamp = System.currentTimeMillis() - 180000,
-                isOwnMessage = false
-            ),
-            ChatMessage(
-                id = "msg4",
-                userName = "Alice",
-                message = "Perfect! Let's schedule a demo for the team.",
-                timestamp = System.currentTimeMillis() - 120000,
-                isOwnMessage = false
-            )
-        )
-    }
-    
-    val sampleJoinRequest = remember {
-        JoinRequest(
-            id = "req1",
-            userName = "Charlie",
-            keyPackage = "eyJraWQiOiJ0ZXN0IiwidHlwZSI6ImtleV9wYWNrYWdlIiwidmVyc2lvbiI6MSwicGF5bG9hZCI6InRlc3QifQ==",
-            groupId = "chat1",
-            timestamp = System.currentTimeMillis() - 60000
-        )
-    }
-    
-    Column(
-        modifier = modifier.fillMaxSize().padding(16.dp)
-    ) {
-        // Header
-        Text(
-            text = "MLS Messenger",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-        
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Left sidebar - Chat list
-            Card(
-                modifier = Modifier.width(300.dp)
-            ) {
-                ChatList(
-                    chats = sampleChats,
-                    selectedChatId = selectedChatId,
-                    onChatSelected = { chatId ->
-                        selectedChatId = chatId
-                    },
-                    onCreateNewChat = {
-                        // TODO: Implement new chat creation
-                    },
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            
-            // Main content area
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                if (selectedChatId != null) {
-                    // Chat header
-                    Card(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = sampleChats.find { it.id == selectedChatId }?.name ?: "",
-                                style = MaterialTheme.typography.titleLarge
-                            )
-                            
-                            // Join request button (for demo purposes)
-                            Button(
-                                onClick = {
-                                    currentJoinRequest = sampleJoinRequest
-                                    showJoinRequestDialog = true
-                                }
-                            ) {
-                                Text("Show Join Request")
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Messages area
-                    Card(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(sampleMessages) { message ->
-                                MessageDisplay(
-                                    message = message,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Message input
-                    MessageInput(
-                        onMessageSent = { message ->
-                            // TODO: Implement message sending
-                            println("Sending message: $message")
-                        },
-                        enabled = selectedChatId != null,
-                        modifier = Modifier.fillMaxWidth()
+    // User ID input dialog
+    if (showUserIdDialog) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Enter User ID") },
+            text = {
+                Column {
+                    Text("Please enter a unique user ID to initialize your client:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = currentUserId,
+                        onValueChange = { currentUserId = it },
+                        label = { Text("User ID") },
+                        singleLine = true
                     )
-                } else {
-                    // No chat selected
-                    Card(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Select a chat to start messaging",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { 
+                        if (currentUserId.isNotEmpty()) {
+                            clientService.initialize(currentUserId)
+                            showUserIdDialog = false
                         }
-                    }
+                    },
+                    enabled = currentUserId.isNotEmpty()
+                ) {
+                    Text("Initialize Client")
                 }
             }
-        }
+        )
     }
     
     // Join request dialog
@@ -213,21 +78,207 @@ fun MessengerUI(
         JoinRequestDialog(
             joinRequest = currentJoinRequest!!,
             onAccept = { request ->
-                // TODO: Implement accept logic
-                println("Accepted join request from ${request.userName}")
-                showJoinRequestDialog = false
-                currentJoinRequest = null
+                coroutineScope.launch {
+                    try {
+                        clientService.acceptJoinRequest(request)
+                        showJoinRequestDialog = false
+                        currentJoinRequest = null
+                    } catch (e: Exception) {
+                        println("Error accepting join request: ${e.message}")
+                    }
+                }
             },
             onDecline = { request ->
-                // TODO: Implement decline logic
-                println("Declined join request from ${request.userName}")
-                showJoinRequestDialog = false
-                currentJoinRequest = null
+                coroutineScope.launch {
+                    try {
+                        clientService.declineJoinRequest(request)
+                        showJoinRequestDialog = false
+                        currentJoinRequest = null
+                    } catch (e: Exception) {
+                        println("Error declining join request: ${e.message}")
+                    }
+                }
             },
             onDismiss = {
                 showJoinRequestDialog = false
                 currentJoinRequest = null
             }
         )
+    }
+
+    MaterialTheme {
+        Column(
+            modifier = modifier.fillMaxSize().padding(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "MLS Messenger",
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    if (currentUserId.isNotEmpty()) {
+                        Text(
+                            text = "User: $currentUserId",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Left sidebar - Chat list
+                Card(
+                    modifier = Modifier.width(300.dp)
+                ) {
+                    ChatList(
+                        chats = chats,
+                        selectedChatId = selectedChatId,
+                        onChatSelected = { chatId ->
+                            selectedChatId = chatId
+                        },
+                        onCreateNewChat = {
+                            coroutineScope.launch {
+                                try {
+                                    val newChat = clientService.createChat("New Chat ${System.currentTimeMillis() % 1000}")
+                                    selectedChatId = newChat.id
+                                } catch (e: Exception) {
+                                    println("Error creating chat: ${e.message}")
+                                }
+                            }
+                        },
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+                
+                // Main content area
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (selectedChatId != null) {
+                        // Chat header
+                        Card(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = chats.find { it.id == selectedChatId }?.name ?: "",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                
+                                // Join requests button
+                                val chatJoinRequests = joinRequests[selectedChatId] ?: emptyList()
+                                if (chatJoinRequests.isNotEmpty()) {
+                                    Button(
+                                        onClick = {
+                                            currentJoinRequest = chatJoinRequests.first()
+                                            showJoinRequestDialog = true
+                                        }
+                                    ) {
+                                        Text("Join Requests (${chatJoinRequests.size})")
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Messages area
+                        Card(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            val chatMessages = messages[selectedChatId] ?: emptyList()
+                            if (chatMessages.isNotEmpty()) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    items(chatMessages) { message ->
+                                        MessageDisplay(
+                                            message = message,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No messages yet. Start the conversation!",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Message input
+                        MessageInput(
+                            onMessageSent = { messageText ->
+                                if (selectedChatId != null && messageText.isNotEmpty()) {
+                                    coroutineScope.launch {
+                                        try {
+                                            clientService.sendMessage(selectedChatId!!, messageText)
+                                        } catch (e: Exception) {
+                                            println("Error sending message: ${e.message}")
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = selectedChatId != null,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        // No chat selected
+                        Card(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Select a chat to start messaging",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Cleanup when component is disposed
+    DisposableEffect(Unit) {
+        onDispose {
+            clientService.stop()
+        }
     }
 }

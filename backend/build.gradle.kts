@@ -12,7 +12,7 @@ java {
 }
 
 application {
-    mainClass.set("com.messenger.sample.backend.ApplicationKt")
+    mainClass.set("com.messenger.sample.MessengerServerKt")
 }
 
 dependencies {
