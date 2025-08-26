@@ -1,8 +1,8 @@
 package com.messenger.sample.backend.services
 
 import com.messenger.sample.backend.storage.InMemoryStorage
-import com.messenger.sample.shared.models.Message
 import com.messenger.sample.shared.models.Group
+import com.messenger.sample.shared.models.Message
 import java.util.UUID
 
 class MessageService {
@@ -36,7 +36,7 @@ class MessageService {
         // Create regular group - MLS operations happen on client side
         // Preserve client-provided ID if it exists (for MLS groups)
         val newGroup = group.copy(
-            id = if (group.id.isNotEmpty()) group.id else UUID.randomUUID().toString(),
+            id = group.id.ifEmpty { UUID.randomUUID().toString() },
             createdAt = System.currentTimeMillis()
         )
         
