@@ -1,5 +1,7 @@
 package com.messenger.sample.desktop.services
 
+import com.messenger.sample.desktop.ui.createClient
+import com.messenger.sample.desktop.ui.models.DesktopUser
 import com.messenger.sample.shared.models.ChatGroup
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
@@ -35,7 +37,7 @@ import kotlinx.serialization.json.Json
  */
 class HttpClientService {
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    
+
     private val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json {
@@ -45,35 +47,35 @@ class HttpClientService {
             })
         }
     }
-    
+
     // Local state
     private val _chats = MutableStateFlow<List<ChatGroup>>(emptyList())
     val chats: StateFlow<List<ChatGroup>> = _chats.asStateFlow()
-    
+
     private val _messages = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<ChatMessage>>> = _messages.asStateFlow()
-    
+
     private val _joinRequests = MutableStateFlow<Map<String, List<JoinRequest>>>(emptyMap())
     val joinRequests: StateFlow<Map<String, List<JoinRequest>>> = _joinRequests.asStateFlow()
-    
-    private val _currentUserId = MutableStateFlow<String?>(null)
-    val currentUserId: StateFlow<String?> = _currentUserId.asStateFlow()
-    
+
+    private val _currentDesktopUserId = MutableStateFlow<DesktopUser?>(null)
+    val currentDesktopUserId: StateFlow<DesktopUser?> = _currentDesktopUserId.asStateFlow()
+
     // Polling jobs
     private var chatsPollingJob: Job? = null
     private var messagesPollingJob: Job? = null
-    
+
     // Server configuration
     private val serverBaseUrl = "http://localhost:8080"
-    
+
     /**
      * Initialize the client service with a user ID.
      */
     fun initialize(userId: String) {
-        _currentUserId.value = userId
+        _currentDesktopUserId.value = DesktopUser(userId = userId, client = createClient(userId))
         startPolling()
     }
-    
+
     /**
      * Start polling for data from the server.
      */
@@ -98,14 +100,14 @@ class HttpClientService {
                 delay(4000) // 4 seconds
             }
         }
-        
+
         // Poll messages every 2 seconds
         messagesPollingJob = coroutineScope.launch {
             while (isActive) {
                 try {
                     val currentChats = _chats.value
                     val newMessages = mutableMapOf<String, List<ChatMessage>>()
-                    
+
                     currentChats.forEach { chat ->
                         try {
                             val response = httpClient.get("$serverBaseUrl/api/chats/${chat.id}/messages") {
@@ -119,7 +121,7 @@ class HttpClientService {
                             println("❌ Failed to fetch messages for chat ${chat.id}: ${e.message}")
                         }
                     }
-                    
+
                     _messages.value = newMessages
                     println("✅ Fetched messages for ${newMessages.size} chats from server")
                 } catch (e: Exception) {
@@ -129,20 +131,20 @@ class HttpClientService {
             }
         }
     }
-    
+
     /**
      * Send a message to a specific chat.
      */
     suspend fun sendMessage(chatId: String, messageText: String) {
         try {
-            val userId = _currentUserId.value ?: "Unknown User"
+            val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
             val request = SendMessageRequest(userId, messageText)
-            
+
             val response = httpClient.post("$serverBaseUrl/api/chats/$chatId/messages") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
-            
+
             if (response.status.isSuccess()) {
                 println("✅ Message sent to chat $chatId")
             } else {
@@ -154,19 +156,19 @@ class HttpClientService {
             throw e
         }
     }
-    
+
     /**
      * Create a new chat.
      */
     suspend fun createChat(chatName: String): ChatGroup {
         return try {
             val request = CreateChatRequest(chatName)
-            
+
             val response = httpClient.post("$serverBaseUrl/api/chats") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
-            
+
             if (response.status.isSuccess()) {
                 val newChat = response.body<ChatGroup>()
                 println("✅ Created new chat: ${newChat.name}")
@@ -180,14 +182,14 @@ class HttpClientService {
             throw e
         }
     }
-    
+
     /**
      * Get messages for a specific chat.
      */
     fun getMessagesForChat(chatId: String): List<ChatMessage> {
         return _messages.value[chatId] ?: emptyList()
     }
-    
+
     /**
      * Get join requests for a specific chat.
      */
@@ -211,7 +213,7 @@ class HttpClientService {
             emptyList()
         }
     }
-    
+
     /**
      * Accept a join request.
      */
@@ -220,10 +222,11 @@ class HttpClientService {
             val response = httpClient.post("$serverBaseUrl/api/join-requests/${joinRequest.id}/accept")
             if (response.status.isSuccess()) {
                 println("✅ Accepted join request from ${joinRequest.userName}")
-                
+
                 // Update local state
                 val currentRequests = _joinRequests.value.toMutableMap()
-                currentRequests[joinRequest.groupId] = currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id } ?: emptyList()
+                currentRequests[joinRequest.groupId] =
+                    currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id } ?: emptyList()
                 _joinRequests.value = currentRequests
             } else {
                 println("❌ Failed to accept join request: ${response.status}")
@@ -234,7 +237,7 @@ class HttpClientService {
             throw e
         }
     }
-    
+
     /**
      * Decline a join request.
      */
@@ -243,10 +246,11 @@ class HttpClientService {
             val response = httpClient.post("$serverBaseUrl/api/join-requests/${joinRequest.id}/decline")
             if (response.status.isSuccess()) {
                 println("❌ Declined join request from ${joinRequest.userName}")
-                
+
                 // Update local state
                 val currentRequests = _joinRequests.value.toMutableMap()
-                currentRequests[joinRequest.groupId] = currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id } ?: emptyList()
+                currentRequests[joinRequest.groupId] =
+                    currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id } ?: emptyList()
                 _joinRequests.value = currentRequests
             } else {
                 println("❌ Failed to decline join request: ${response.status}")
@@ -257,7 +261,7 @@ class HttpClientService {
             throw e
         }
     }
-    
+
     /**
      * Mark a chat as read.
      */
@@ -273,7 +277,7 @@ class HttpClientService {
             println("❌ Failed to mark chat as read: ${e.message}")
         }
     }
-    
+
     /**
      * Stop the service and clean up resources.
      */

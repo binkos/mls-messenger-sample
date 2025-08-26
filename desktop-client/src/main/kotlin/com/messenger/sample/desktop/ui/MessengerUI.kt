@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.AlertDialog
 import androidx.compose.material.Button
-import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -32,25 +30,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.messenger.sample.desktop.services.HttpClientService
 import com.messenger.sample.desktop.ui.components.ChatList
+import com.messenger.sample.desktop.ui.components.EnterUserIdDialog
 import com.messenger.sample.desktop.ui.components.JoinRequestDialog
 import com.messenger.sample.desktop.ui.components.MessageDisplay
 import com.messenger.sample.desktop.ui.components.MessageInput
 import com.messenger.sample.shared.models.JoinRequest
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Composable
 fun MessengerUI(
     modifier: Modifier = Modifier
 ) {
+    val clientService = remember { HttpClientService() }
+    val coroutineScope = rememberCoroutineScope()
+
     var selectedChatId by remember { mutableStateOf<String?>(null) }
     var showJoinRequestDialog by remember { mutableStateOf(false) }
     var currentJoinRequest by remember { mutableStateOf<JoinRequest?>(null) }
     var showUserIdDialog by remember { mutableStateOf(true) }
-    var currentUserId by remember { mutableStateOf("") }
+    val currentUserId by clientService.currentDesktopUserId.map { it?.userId ?: "" }.collectAsState("")
 
-    val clientService = remember { HttpClientService() }
-    val coroutineScope = rememberCoroutineScope()
 
     // Collect data from ClientService
     val chats by clientService.chats.collectAsState()
@@ -67,33 +68,10 @@ fun MessengerUI(
 
     // User ID input dialog
     if (showUserIdDialog) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = { Text("Enter User ID") },
-            text = {
-                Column {
-                    Text("Please enter a unique user ID to initialize your client:")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = currentUserId,
-                        onValueChange = { currentUserId = it },
-                        label = { Text("User ID") },
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (currentUserId.isNotEmpty()) {
-                            clientService.initialize(currentUserId)
-                            showUserIdDialog = false
-                        }
-                    },
-                    enabled = currentUserId.isNotEmpty()
-                ) {
-                    Text("Initialize Client")
-                }
+        EnterUserIdDialog(
+            onConfirmed = {
+                clientService.initialize(it)
+                showUserIdDialog = false
             }
         )
     }
