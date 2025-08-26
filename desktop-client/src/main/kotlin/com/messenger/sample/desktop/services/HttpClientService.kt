@@ -286,5 +286,6 @@ class HttpClientService {
         messagesPollingJob?.cancel()
         coroutineScope.cancel()
         httpClient.close()
+        _currentDesktopUserId.value?.client?.destroy()
     }
 }
