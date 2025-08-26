@@ -41,3 +41,28 @@ data class CreateJoinRequestRequest(
     val keyPackage: String,
     val groupId: String
 )
+
+@Serializable
+data class UserChatStatus(
+    val userId: String,
+    val chatId: String,
+    val status: ChatMembershipStatus,
+    val joinedAt: Long? = null
+)
+
+@Serializable
+enum class ChatMembershipStatus {
+    MEMBER,        // User is a member of the chat
+    PENDING,       // User has requested to join (waiting for approval)
+    NOT_MEMBER     // User is not a member and hasn't requested to join
+}
+
+@Serializable
+data class ChatGroupWithUserStatus(
+    val id: String,
+    val name: String,
+    val lastMessage: String? = null,
+    val lastMessageTime: Long? = null,
+    val unreadCount: Int = 0,
+    val userStatus: ChatMembershipStatus = ChatMembershipStatus.NOT_MEMBER
+)

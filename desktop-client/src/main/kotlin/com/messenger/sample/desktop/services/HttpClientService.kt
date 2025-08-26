@@ -3,8 +3,11 @@ package com.messenger.sample.desktop.services
 import com.messenger.sample.desktop.ui.createClient
 import com.messenger.sample.desktop.ui.models.DesktopUser
 import com.messenger.sample.shared.models.ChatGroup
+import com.messenger.sample.shared.models.ChatGroupWithUserStatus
+import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
+import com.messenger.sample.shared.models.CreateJoinRequestRequest
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.SendMessageRequest
 import io.ktor.client.HttpClient
@@ -13,6 +16,7 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -49,8 +53,8 @@ class HttpClientService {
     }
 
     // Local state
-    private val _chats = MutableStateFlow<List<ChatGroup>>(emptyList())
-    val chats: StateFlow<List<ChatGroup>> = _chats.asStateFlow()
+    private val _chatsWithStatus = MutableStateFlow<List<ChatGroupWithUserStatus>>(emptyList())
+    val chatsWithStatus: StateFlow<List<ChatGroupWithUserStatus>> = _chatsWithStatus.asStateFlow()
 
     private val _messages = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<ChatMessage>>> = _messages.asStateFlow()
@@ -80,22 +84,23 @@ class HttpClientService {
      * Start polling for data from the server.
      */
     private fun startPolling() {
-        // Poll chats every 4 seconds
+        // Poll chats with user status every 4 seconds
         chatsPollingJob = coroutineScope.launch {
             while (isActive) {
                 try {
-                    val response = httpClient.get("$serverBaseUrl/api/chats") {
+                    val userId = _currentDesktopUserId.value?.userId ?: continue
+                    val response = httpClient.get("$serverBaseUrl/api/users/$userId/chats") {
                         accept(ContentType.Application.Json)
                     }
                     if (response.status.isSuccess()) {
-                        val serverChats = response.body<List<ChatGroup>>()
-                        _chats.value = serverChats
-                        println("✅ Fetched ${serverChats.size} chats from server")
+                        val chatsWithStatus = response.body<List<ChatGroupWithUserStatus>>()
+                        _chatsWithStatus.value = chatsWithStatus
+                        println("✅ Fetched ${chatsWithStatus.size} chats with user status from server")
                     } else {
-                        println("❌ Failed to fetch chats: ${response.status}")
+                        println("❌ Failed to fetch chats with user status: ${response.status}")
                     }
                 } catch (e: Exception) {
-                    println("❌ Failed to fetch chats: ${e.message}")
+                    println("❌ Failed to fetch chats with user status: ${e.message}")
                 }
                 delay(4000) // 4 seconds
             }
@@ -105,7 +110,7 @@ class HttpClientService {
         messagesPollingJob = coroutineScope.launch {
             while (isActive) {
                 try {
-                    val currentChats = _chats.value
+                    val currentChats = _chatsWithStatus.value
                     val newMessages = mutableMapOf<String, List<ChatMessage>>()
 
                     currentChats.forEach { chat ->
@@ -163,10 +168,15 @@ class HttpClientService {
     suspend fun createChat(chatName: String): ChatGroup {
         return try {
             val request = CreateChatRequest(chatName)
+            val userId = _currentDesktopUserId.value?.userId
 
             val response = httpClient.post("$serverBaseUrl/api/chats") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
+                // Add user ID header so backend can mark creator as member
+                if (userId != null) {
+                    header("X-User-ID", userId)
+                }
             }
 
             if (response.status.isSuccess()) {
@@ -275,6 +285,60 @@ class HttpClientService {
             }
         } catch (e: Exception) {
             println("❌ Failed to mark chat as read: ${e.message}")
+        }
+    }
+
+    /**
+     * Request to join a chat
+     */
+    suspend fun requestToJoinChat(chatId: String, keyPackage: String): Boolean {
+        return try {
+            val userId = _currentDesktopUserId.value?.userId ?: return false
+            val request = CreateJoinRequestRequest(
+                userName = userId,
+                keyPackage = keyPackage,
+                groupId = chatId
+            )
+
+            val response = httpClient.post("$serverBaseUrl/api/users/$userId/chats/$chatId/join-request") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+
+            if (response.status.isSuccess()) {
+                println("✅ Join request sent for chat $chatId")
+                true
+            } else {
+                println("❌ Failed to send join request: ${response.status}")
+                false
+            }
+        } catch (e: Exception) {
+            println("❌ Failed to send join request: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Get user status for a specific chat
+     */
+    suspend fun getUserChatStatus(chatId: String): ChatMembershipStatus {
+        return try {
+            val userId = _currentDesktopUserId.value?.userId ?: return ChatMembershipStatus.NOT_MEMBER
+            val response = httpClient.get("$serverBaseUrl/api/users/$userId/chats/$chatId/status") {
+                accept(ContentType.Application.Json)
+            }
+
+            if (response.status.isSuccess()) {
+                val statusMap = response.body<Map<String, String>>()
+                val statusString = statusMap["status"] ?: "NOT_MEMBER"
+                ChatMembershipStatus.valueOf(statusString)
+            } else {
+                println("❌ Failed to get user chat status: ${response.status}")
+                ChatMembershipStatus.NOT_MEMBER
+            }
+        } catch (e: Exception) {
+            println("❌ Failed to get user chat status: ${e.message}")
+            ChatMembershipStatus.NOT_MEMBER
         }
     }
 

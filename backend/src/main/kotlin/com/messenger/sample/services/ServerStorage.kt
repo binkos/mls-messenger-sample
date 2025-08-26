@@ -1,8 +1,10 @@
 package com.messenger.sample.services
 
 import com.messenger.sample.shared.models.ChatGroup
+import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.JoinRequest
+import com.messenger.sample.shared.models.UserChatStatus
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -17,6 +19,7 @@ object ServerStorage {
     private val chats = ConcurrentHashMap<String, ChatGroup>()
     private val messages = ConcurrentHashMap<String, MutableList<ChatMessage>>()
     private val joinRequests = ConcurrentHashMap<String, MutableList<JoinRequest>>()
+    private val userChatStatuses = ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
     
     init {
         // Initialize with sample data
@@ -161,7 +164,7 @@ object ServerStorage {
         joinRequests[chatId]?.removeAll { it.id == requestId }
     }
     
-    suspend fun createChat(name: String): ChatGroup = mutex.withLock {
+    suspend fun createChat(name: String, creatorUserId: String? = null): ChatGroup = mutex.withLock {
         val chatId = "chat_${System.currentTimeMillis()}"
         val newChat = ChatGroup(
             id = chatId,
@@ -172,12 +175,79 @@ object ServerStorage {
         )
         chats[chatId] = newChat
         messages[chatId] = mutableListOf()
+        
+        // Mark the creator as a member of the chat
+        if (creatorUserId != null) {
+            setUserChatStatus(creatorUserId, chatId, ChatMembershipStatus.MEMBER)
+        }
+        
         newChat
     }
     
     suspend fun markChatAsRead(chatId: String) = mutex.withLock {
         chats[chatId]?.let { chat ->
             chats[chatId] = chat.copy(unreadCount = 0)
+        }
+    }
+    
+    /**
+     * Get user status for all chats
+     */
+    suspend fun getUserChatStatuses(userId: String): List<UserChatStatus> = mutex.withLock {
+        userChatStatuses[userId]?.toList() ?: emptyList()
+    }
+    
+    /**
+     * Get user status for a specific chat
+     */
+    suspend fun getUserChatStatus(userId: String, chatId: String): ChatMembershipStatus = mutex.withLock {
+        val userStatuses = userChatStatuses[userId] ?: emptyList()
+        val status = userStatuses.find { it.chatId == chatId }
+        status?.status ?: ChatMembershipStatus.NOT_MEMBER
+    }
+    
+    /**
+     * Add or update user status for a chat
+     */
+    suspend fun setUserChatStatus(userId: String, chatId: String, status: ChatMembershipStatus) {
+        val userStatuses = userChatStatuses.getOrPut(userId) { mutableListOf() }
+        val existingStatus = userStatuses.find { it.chatId == chatId }
+        
+        if (existingStatus != null) {
+            // Update existing status
+            val index = userStatuses.indexOf(existingStatus)
+            userStatuses[index] = existingStatus.copy(
+                status = status,
+                joinedAt = if (status == ChatMembershipStatus.MEMBER) System.currentTimeMillis() else existingStatus.joinedAt
+            )
+        } else {
+            // Add new status
+            userStatuses.add(UserChatStatus(
+                userId = userId,
+                chatId = chatId,
+                status = status,
+                joinedAt = if (status == ChatMembershipStatus.MEMBER) System.currentTimeMillis() else null
+            ))
+        }
+    }
+    
+    /**
+     * Get chats with user status for a specific user
+     */
+    suspend fun getChatsWithUserStatus(userId: String): List<com.messenger.sample.shared.models.ChatGroupWithUserStatus> = mutex.withLock {
+        val allChats = chats.values.toList()
+        val userStatuses = userChatStatuses[userId] ?: emptyList()
+        
+        allChats.map { chat ->
+            val userStatus = userStatuses.find { it.chatId == chat.id }?.status ?: ChatMembershipStatus.NOT_MEMBER
+            com.messenger.sample.shared.models.ChatGroupWithUserStatus(
+                id = chat.id,
+                name = chat.name,
+                lastMessage = chat.lastMessage,
+                lastMessageTime = chat.lastMessageTime,
+                unreadCount = chat.unreadCount,
+                userStatus = userStatus
+            )
         }
     }
 }
