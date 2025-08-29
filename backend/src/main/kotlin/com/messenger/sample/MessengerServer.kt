@@ -135,15 +135,6 @@ fun main() {
                 }
             }
 
-            // Mark chat as read
-            post("/api/chats/{chatId}/mark-read") {
-                val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    ServerStorage.markChatAsRead(chatId)
-                    call.respond(HttpStatusCode.OK, "Chat marked as read")
-                }
-            }
-
             // Get chats with user status for a specific user
             get("/api/users/{userId}/chats") {
                 val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
