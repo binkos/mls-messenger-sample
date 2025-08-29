@@ -23,11 +23,16 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,12 +40,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import uniffi.mls_rs_uniffi.FfiConverterTypeMessage
+import uniffi.mls_rs_uniffi.Group
+import uniffi.mls_rs_uniffi.Message
 
 /**
  * HTTP client service that communicates with the backend API.
  */
 class HttpClientService {
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) {
@@ -65,6 +73,8 @@ class HttpClientService {
     private val _currentDesktopUserId = MutableStateFlow<DesktopUser?>(null)
     val currentDesktopUserId: StateFlow<DesktopUser?> = _currentDesktopUserId.asStateFlow()
 
+    private val groups: ConcurrentHashMap<String, Group> = ConcurrentHashMap()
+
     // Polling jobs
     private var chatsPollingJob: Job? = null
     private var messagesPollingJob: Job? = null
@@ -87,7 +97,8 @@ class HttpClientService {
     private fun startPolling() {
         // Poll chats with user status every 4 seconds
         chatsPollingJob = coroutineScope.launch {
-            while (isActive) {
+            val mlsClient = currentDesktopUserId.value?.client
+            while (isActive && mlsClient != null) {
                 try {
                     val userId = _currentDesktopUserId.value?.userId ?: continue
                     val response = httpClient.get("$serverBaseUrl/api/users/$userId/chats") {
@@ -96,6 +107,16 @@ class HttpClientService {
                     if (response.status.isSuccess()) {
                         val chatsWithStatus = response.body<List<ChatGroupWithUserStatus>>()
                         _chatsWithStatus.value = chatsWithStatus
+
+                        chatsWithStatus
+                            .filter { it.userStatus == ChatMembershipStatus.MEMBER }
+                            .forEach {
+                                if (groups.get(it.id) == null) {
+                                    groups[it.id] = mlsClient.createGroup(it.id.toByteArray())
+                                        .also { it.writeToStorage() }
+                                }
+                            }
+
                         println("✅ Fetched ${chatsWithStatus.size} chats with user status from server")
                     } else {
                         println("❌ Failed to fetch chats with user status: ${response.status}")
@@ -107,36 +128,6 @@ class HttpClientService {
             }
         }
 
-        // Poll messages every 2 seconds
-        messagesPollingJob = coroutineScope.launch {
-            while (isActive) {
-                try {
-                    val currentChats = _chatsWithStatus.value
-                    val newMessages = mutableMapOf<String, List<ChatMessage>>()
-
-                    currentChats.forEach { chat ->
-                        try {
-                            val response = httpClient.get("$serverBaseUrl/api/chats/${chat.id}/messages") {
-                                accept(ContentType.Application.Json)
-                            }
-                            if (response.status.isSuccess()) {
-                                val chatMessages = response.body<List<ChatMessage>>()
-                                newMessages[chat.id] = chatMessages
-                            }
-                        } catch (e: Exception) {
-                            println("❌ Failed to fetch messages for chat ${chat.id}: ${e.message}")
-                        }
-                    }
-
-                    _messages.value = newMessages
-                    println("✅ Fetched messages for ${newMessages.size} chats from server")
-                } catch (e: Exception) {
-                    println("❌ Failed to fetch messages: ${e.message}")
-                }
-                delay(2000) // 2 seconds
-            }
-        }
-        
         // Poll join requests for member chats every 3 seconds
         joinRequestsPollingJob = coroutineScope.launch {
             while (isActive) {
@@ -144,7 +135,7 @@ class HttpClientService {
                     val currentChatsWithStatus = _chatsWithStatus.value
                     val memberChats = currentChatsWithStatus.filter { it.userStatus == ChatMembershipStatus.MEMBER }
                     val newJoinRequests = mutableMapOf<String, List<JoinRequest>>()
-                    
+
                     memberChats.forEach { chat ->
                         try {
                             val response = httpClient.get("$serverBaseUrl/api/chats/${chat.id}/join-requests") {
@@ -160,7 +151,7 @@ class HttpClientService {
                             println("❌ Failed to fetch join requests for chat ${chat.id}: ${e.message}")
                         }
                     }
-                    
+
                     _joinRequests.value = newJoinRequests
                     if (newJoinRequests.isNotEmpty()) {
                         println("✅ Fetched join requests for ${newJoinRequests.size} chats from server")
@@ -179,7 +170,12 @@ class HttpClientService {
     suspend fun sendMessage(chatId: String, messageText: String) {
         try {
             val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
-            val request = SendMessageRequest(userId, messageText)
+            val group = groups[chatId] ?: return
+            val message = group.encryptApplicationMessage(messageText.toByteArray()).use { serializeMessage(it) }
+            val request = SendMessageRequest(
+                userName = userId,
+                message = Base64.getEncoder().encodeToString(message)
+            )
 
             val response = httpClient.post("$serverBaseUrl/api/chats/$chatId/messages") {
                 contentType(ContentType.Application.Json)
@@ -330,9 +326,12 @@ class HttpClientService {
     suspend fun requestToJoinChat(chatId: String, keyPackage: String): Boolean {
         return try {
             val userId = _currentDesktopUserId.value?.userId ?: return false
+            val keyPackage = _currentDesktopUserId.value?.client?.generateKeyPackageMessage() ?: return false
+            val bytes = serializeMessage(keyPackage)
+
             val request = CreateJoinRequestRequest(
                 userName = userId,
-                keyPackage = keyPackage,
+                keyPackage = Base64.getEncoder().encodeToString(bytes).also { println(it) },
                 groupId = chatId
             )
 
@@ -388,5 +387,58 @@ class HttpClientService {
         coroutineScope.cancel()
         httpClient.close()
         _currentDesktopUserId.value?.client?.destroy()
+    }
+
+
+    suspend fun startPollingMessagesOfChat(chatId: String) {
+        messagesPollingJob?.cancelAndJoin()
+        messagesPollingJob = coroutineScope.launch {
+            while (isActive) {
+                try {
+                    val currentDesktop = _currentDesktopUserId.value?.userId
+                    val newMessages = mutableMapOf<String, List<ChatMessage>>()
+
+                    try {
+                        val response = httpClient.get("$serverBaseUrl/api/chats/$chatId/messages") {
+                            accept(ContentType.Application.Json)
+                        }
+                        if (response.status.isSuccess()) {
+                            val chatMessages = response.body<List<ChatMessage>>()
+                            newMessages[chatId] = chatMessages
+                                .map { it.copy(isOwnMessage = currentDesktop == it.id) }
+                        }
+                    } catch (e: Exception) {
+                        println("❌ Failed to fetch messages for chat ${chatId}: ${e.message}")
+                    }
+                    _messages.value = newMessages
+                    println("✅ Fetched messages for ${newMessages.size} chats from server")
+                } catch (e: Exception) {
+                    println("❌ Failed to fetch messages: ${e.message}")
+                }
+                delay(2000) // 2 seconds
+            }
+        }
+    }
+
+    private fun serializeMessage(message: Message): ByteArray {
+        val bufferSize = FfiConverterTypeMessage.allocationSize(message)
+        val buffer = ByteBuffer.allocateDirect(bufferSize.toInt())
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+
+        FfiConverterTypeMessage.write(message, buffer)
+
+        val position = buffer.position()
+        val bytes = ByteArray(position)
+        buffer.rewind()
+        buffer.get(bytes)
+
+        return bytes
+    }
+
+    private fun deserializeMessage(bytes: ByteArray): Message {
+        val buffer = ByteBuffer.wrap(bytes)
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+
+        return FfiConverterTypeMessage.read(buffer)
     }
 }

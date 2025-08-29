@@ -64,6 +64,7 @@ fun MessengerUI(
     LaunchedEffect(selectedChatId) {
         selectedChatId?.let { chatId ->
             delay(1000) // Small delay to ensure UI is updated
+            clientService.startPollingMessagesOfChat(chatId)
             clientService.markChatAsRead(chatId)
         }
     }

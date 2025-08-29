@@ -244,8 +244,8 @@ fun main() {
                     }
 
                     if (foundRequest != null && foundChatId != null) {
-                        val chatId = foundChatId // Non-null assertion
-                        val request = foundRequest // Non-null assertion
+                        val chatId = foundChatId!! // Non-null assertion
+                        val request = foundRequest!! // Non-null assertion
                         ServerStorage.removeJoinRequest(chatId, requestId)
 
                         // Update user status back to NOT_MEMBER
