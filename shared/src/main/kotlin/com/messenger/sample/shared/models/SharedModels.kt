@@ -15,9 +15,6 @@ data class ChatMessage(
 data class ChatGroup(
     val id: String,
     val name: String,
-    val lastMessage: String? = null,
-    val lastMessageTime: Long? = null,
-    val unreadCount: Int = 0
 )
 
 @Serializable
@@ -52,19 +49,16 @@ data class UserChatStatus(
 
 @Serializable
 enum class ChatMembershipStatus {
+    NOT_MEMBER,     // User is not a member and hasn't requested to join
     MEMBER,        // User is a member of the chat
     PENDING,       // User has requested to join (waiting for approval)
-    NOT_MEMBER     // User is not a member and hasn't requested to join
 }
 
 @Serializable
 data class ChatGroupWithUserStatus(
     val id: String,
     val name: String,
-    val lastMessage: String? = null,
-    val lastMessageTime: Long? = null,
-    val unreadCount: Int = 0,
-    val userStatus: ChatMembershipStatus = ChatMembershipStatus.NOT_MEMBER
+    val membershipStatus: ChatMembershipStatus = ChatMembershipStatus.NOT_MEMBER
 )
 
 @Serializable
@@ -74,7 +68,7 @@ data class Event(
     val userId: String, // Target user who should receive this event
     val chatId: String? = null,
     val data: Map<String, String> = emptyMap(),
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
 )
 
 @Serializable
@@ -84,5 +78,6 @@ enum class EventType {
     JOIN_APPROVED,      // Join request was approved
     JOIN_DECLINED,      // Join request was declined
     USER_JOINED,        // User joined a group
-    USER_LEFT          // User left a group
+    USER_LEFT,          // User left a group
+    MESSAGE_SENT,       // Message sent
 }

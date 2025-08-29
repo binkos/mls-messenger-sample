@@ -18,7 +18,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +37,6 @@ import com.messenger.sample.desktop.ui.components.MessageInput
 import com.messenger.sample.shared.models.ChatGroupWithUserStatus
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.JoinRequest
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -58,16 +56,8 @@ fun MessengerUI(
 
     // Collect data from ClientService
     val chats by clientService.chats.collectAsState()
-    val messages by clientService.messages.collectAsState(emptyMap())
+    val chatMessages by clientService.messages.map { it[selectedChatId] ?: emptyList() }.collectAsState(emptyList())
     val joinRequests by clientService.joinRequests.collectAsState()
-
-    // Mark chat as read when selected
-    LaunchedEffect(selectedChatId) {
-        selectedChatId?.let { chatId ->
-            delay(1000) // Small delay to ensure UI is updated
-            clientService.startPollingMessagesOfChat(chatId)
-        }
-    }
 
     // User ID input dialog
     if (showUserIdDialog) {
@@ -216,10 +206,7 @@ fun MessengerUI(
                                     chat = ChatGroupWithUserStatus(
                                         id = selectedChat.id,
                                         name = selectedChat.name,
-                                        lastMessage = selectedChat.lastMessage,
-                                        lastMessageTime = selectedChat.lastMessageTime,
-                                        unreadCount = selectedChat.unreadCount,
-                                        userStatus = ChatMembershipStatus.NOT_MEMBER
+                                        membershipStatus = ChatMembershipStatus.NOT_MEMBER
                                     ),
                                     onRequestToJoin = { chatId ->
                                         coroutineScope.launch {
@@ -242,7 +229,6 @@ fun MessengerUI(
                                 Card(
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    val chatMessages = messages[selectedChatId] ?: emptyList()
                                     if (chatMessages.isNotEmpty()) {
                                         LazyColumn(
                                             modifier = Modifier

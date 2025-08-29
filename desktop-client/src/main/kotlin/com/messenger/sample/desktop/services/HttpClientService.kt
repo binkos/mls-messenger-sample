@@ -3,6 +3,8 @@ package com.messenger.sample.desktop.services
 import com.messenger.sample.desktop.ui.createClient
 import com.messenger.sample.desktop.ui.models.DesktopUser
 import com.messenger.sample.shared.models.ChatGroup
+import com.messenger.sample.shared.models.ChatGroupWithUserStatus
+import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -46,6 +49,8 @@ import kotlinx.serialization.json.Json
 import uniffi.mls_rs_uniffi.FfiConverterTypeMessage
 import uniffi.mls_rs_uniffi.Group
 import uniffi.mls_rs_uniffi.Message
+import uniffi.mls_rs_uniffi.ReceivedMessage
+import uniffi.mls_rs_uniffi.use
 
 /**
  * HTTP client service that communicates with the backend API.
@@ -64,8 +69,8 @@ class HttpClientService {
     }
 
     // Local state - managed by events
-    private val _chats = MutableStateFlow<List<ChatGroup>>(emptyList())
-    val chats: StateFlow<List<ChatGroup>> = _chats.asStateFlow()
+    private val _chats = MutableStateFlow<List<ChatGroupWithUserStatus>>(emptyList())
+    val chats: StateFlow<List<ChatGroupWithUserStatus>> = _chats.asStateFlow()
 
     val messageMutex = Mutex()
     private val _messages = HashMap<String, List<ChatMessage>>()
@@ -94,35 +99,49 @@ class HttpClientService {
      */
     fun initialize(userId: String) {
         _currentDesktopUserId.value = DesktopUser(userId = userId, client = createClient(userId))
-        startPolling()
+        startPolling(userId = userId)
     }
 
     /**
      * Start polling for events from the server.
      */
-    private fun startPolling() {
+    private fun startPolling(userId: String) {
+        // First, connect to get existing groups
+        coroutineScope.launch {
+            try {
+                val response = httpClient.post("$serverBaseUrl/api/users/$userId/connect") {
+                    accept(ContentType.Application.Json)
+                }
+                if (response.status.isSuccess()) {
+                    println("✅ Connected to server and received existing groups")
+                } else {
+                    println("❌ Failed to connect to server: ${response.status}")
+                }
+            } catch (e: Exception) {
+                println("❌ Failed to connect to server: ${e.message}")
+            }
+        }
+
         // Poll events every 2 seconds
         eventsPollingJob = coroutineScope.launch {
             while (isActive) {
                 try {
                     val userId = _currentDesktopUserId.value?.userId
-                    if (userId != null) {
-                        val lastEventId = _lastProcessedEventId.value
-                        val response = httpClient.get("$serverBaseUrl/api/users/$userId/events") {
-                            accept(ContentType.Application.Json)
-                            if (lastEventId != null) {
-                                url {
-                                    parameters.append("since", lastEventId)
-                                }
+                    val lastEventId = _lastProcessedEventId.value
+                    val response = httpClient.get("$serverBaseUrl/api/users/$userId/events") {
+                        accept(ContentType.Application.Json)
+                        if (lastEventId != null) {
+                            url {
+                                parameters.append("since", lastEventId)
                             }
                         }
-                        if (response.status.isSuccess()) {
-                            val newEvents = response.body<List<Event>>()
-                            if (newEvents.isNotEmpty()) {
-                                processEvents(newEvents)
-                                _lastProcessedEventId.value = newEvents.last().id
-                                println("✅ Processed ${newEvents.size} new events")
-                            }
+                    }
+                    if (response.status.isSuccess()) {
+                        val newEvents = response.body<List<Event>>()
+                        if (newEvents.isNotEmpty()) {
+                            processEvents(newEvents)
+                            _lastProcessedEventId.value = newEvents.last().id
+                            println("✅ Processed ${newEvents.size} new events")
                         }
                     }
                 } catch (e: Exception) {
@@ -156,7 +175,8 @@ class HttpClientService {
                 messageMutex.withLock {
                     // Add the message to local state
                     val currentMessages = _messages[chatId] ?: emptyList()
-                    val updatedMessages = currentMessages + createdMessage.copy(message = messageText)
+                    val updatedMessages =
+                        currentMessages + createdMessage.copy(message = messageText, isOwnMessage = true)
                     _messages[chatId] = updatedMessages
                 }
                 messagesTriggerFlow.value = messagesTriggerFlow.value + 1
@@ -305,23 +325,57 @@ class HttpClientService {
     /**
      * Process incoming events and update local state
      */
-    private fun processEvents(events: List<Event>) {
+    private suspend fun processEvents(events: List<Event>) {
         events.forEach { event ->
             when (event.type) {
                 EventType.GROUP_CREATED -> {
                     val chatId = event.chatId ?: return@forEach
                     val chatName = event.data["name"] ?: return@forEach
-                    val newChat = ChatGroup(
+                    val membershipStatus = ChatMembershipStatus.entries[event.data["type"]?.toInt() ?: 0]
+
+                    val newChat = ChatGroupWithUserStatus(
                         id = chatId,
                         name = chatName,
-                        lastMessage = null,
-                        lastMessageTime = null,
-                        unreadCount = 0
+                        membershipStatus = membershipStatus
                     )
-                    val currentChats = _chats.value.toMutableList()
-                    currentChats.add(newChat)
-                    _chats.value = currentChats
-                    println("✅ Added new chat: $chatName")
+
+                    when (membershipStatus) {
+                        ChatMembershipStatus.NOT_MEMBER -> {
+                            _chats.update { chats ->
+                                val existingChat = chats.find { it.id == chatId }
+                                if (existingChat == null) {
+                                    val currentChats = _chats.value.toMutableList()
+                                    currentChats.add(newChat)
+                                    currentChats
+                                } else {
+                                    chats
+                                }
+                            }
+                        }
+
+                        ChatMembershipStatus.MEMBER -> {
+                            _chats.update { chats ->
+                                chats.map {
+                                    if (it.id == event.chatId) {
+                                        it.copy(membershipStatus = membershipStatus)
+                                    } else {
+                                        it
+                                    }
+                                }
+                            }
+
+                            if (!groups.contains(event.chatId)) {
+                                _currentDesktopUserId.value?.let { desktopUser ->
+                                    groups[chatId] = desktopUser.client.createGroup(chatId.toByteArray())
+                                        .also { it.writeToStorage() }
+                                }
+                            }
+                        }
+
+                        ChatMembershipStatus.PENDING -> {
+                            Unit
+                        }
+                    }
                 }
 
                 EventType.JOIN_REQUESTED -> {
@@ -376,6 +430,45 @@ class HttpClientService {
                 EventType.USER_LEFT -> {
                     println("👋 User left: ${event.data["userName"]}")
                 }
+
+                EventType.MESSAGE_SENT -> {
+                    messageMutex.withLock {
+                        val chatId = event.chatId ?: return@forEach
+                        val currentMessages = _messages[chatId]?.toMutableList() ?: mutableListOf<ChatMessage>()
+
+                        val messageDataByteArray = Base64.getDecoder().decode(event.data["message"])
+                        val message = deserializeMessage(messageDataByteArray)
+                        groups[chatId]?.processIncomingMessage(message)?.use { receivedMessage ->
+                            var messageText = ""
+                            when (receivedMessage) {
+                                is ReceivedMessage.ApplicationMessage -> {
+                                    messageText = receivedMessage.data.toString()
+                                }
+                                else -> {
+                                    messageText = ""
+                                }
+//                                is ReceivedMessage.Commit -> TODO()
+//                                ReceivedMessage.GroupInfo -> TODO()
+//                                ReceivedMessage.KeyPackage -> TODO()
+//                                is ReceivedMessage.ReceivedProposal -> TODO()
+//                                ReceivedMessage.Welcome -> TODO()
+                            }
+
+                            val chatMessage = ChatMessage(
+                                id = event.data["id"] ?: return@forEach,
+                                userName = event.data["userName"] ?: return@forEach,
+                                message = messageText,
+                                timestamp = event.data["timestamp"]?.toLong() ?: return@forEach,
+                                isOwnMessage = false
+                            )
+
+                            currentMessages += chatMessage
+                            _messages[chatId] = currentMessages
+                            messagesTriggerFlow.value += 1
+                            println("✅ Fetched ${currentMessages.size} messages for chat $chatId")
+                        }
+                    }
+                }
             }
         }
     }
@@ -388,26 +481,6 @@ class HttpClientService {
         coroutineScope.cancel()
         httpClient.close()
         _currentDesktopUserId.value?.client?.destroy()
-    }
-
-
-    suspend fun startPollingMessagesOfChat(chatId: String) {
-        // For now, we'll fetch messages directly without polling
-        try {
-            val response = httpClient.get("$serverBaseUrl/api/chats/$chatId/messages") {
-                accept(ContentType.Application.Json)
-            }
-            if (response.status.isSuccess()) {
-                messageMutex.withLock {
-                    val chatMessages = response.body<List<ChatMessage>>()
-                    val currentMessages = _messages.toMutableMap()
-                    currentMessages[chatId] = chatMessages
-                    println("✅ Fetched ${chatMessages.size} messages for chat $chatId")
-                }
-            }
-        } catch (e: Exception) {
-            println("❌ Failed to fetch messages for chat $chatId: ${e.message}")
-        }
     }
 
     private fun serializeMessage(message: Message): ByteArray {

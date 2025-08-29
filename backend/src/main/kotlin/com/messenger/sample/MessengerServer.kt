@@ -75,15 +75,6 @@ fun main() {
                 }
             }
 
-            // Get messages for a chat
-            get("/api/chats/{chatId}/messages") {
-                val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    val messages = ServerStorage.getMessages(chatId)
-                    call.respond(messages)
-                }
-            }
-
             // Send message to a chat
             post("/api/chats/{chatId}/messages") {
                 val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
@@ -161,6 +152,15 @@ fun main() {
                 runBlocking {
                     val events = ServerStorage.getUserEvents(userId, sinceEventId)
                     call.respond(events)
+                }
+            }
+
+            // Send existing groups to a user (when they connect)
+            post("/api/users/{userId}/connect") {
+                val userId = call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                runBlocking {
+                    ServerStorage.sendExistingGroupsToUser(userId)
+                    call.respond(HttpStatusCode.OK, "Existing groups sent to user")
                 }
             }
 

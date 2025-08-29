@@ -21,7 +21,7 @@ fun JoinChatButton(
     onRequestToJoin: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    when (chat.userStatus) {
+    when (chat.membershipStatus) {
         ChatMembershipStatus.NOT_MEMBER -> {
             Card(
                 modifier = modifier.padding(16.dp)
