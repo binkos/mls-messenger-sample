@@ -3,7 +3,6 @@ package com.messenger.sample.desktop.services
 import com.messenger.sample.desktop.ui.createClient
 import com.messenger.sample.desktop.ui.models.DesktopUser
 import com.messenger.sample.shared.models.ChatGroup
-import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
@@ -160,12 +159,8 @@ class HttpClientService {
                     val updatedMessages = currentMessages + createdMessage.copy(message = messageText)
                     _messages[chatId] = updatedMessages
                 }
-
-                // Trigger UI update
                 messagesTriggerFlow.value = messagesTriggerFlow.value + 1
-
                 println("✅ Message sent to chat $chatId: ${createdMessage.message}")
-                createdMessage
             } else {
                 println("❌ Failed to send message: ${response.status}")
                 throw Exception("Failed to send message: ${response.status}")
@@ -212,30 +207,6 @@ class HttpClientService {
      */
     fun getMessagesForChat(chatId: String): List<ChatMessage> {
         return _messages[chatId] ?: emptyList()
-    }
-
-    /**
-     * Get join requests for a specific chat.
-     */
-    suspend fun getJoinRequestsForChat(chatId: String): List<JoinRequest> {
-        return try {
-            val response = httpClient.get("$serverBaseUrl/api/chats/$chatId/join-requests") {
-                accept(ContentType.Application.Json)
-            }
-            if (response.status.isSuccess()) {
-                val requests = response.body<List<JoinRequest>>()
-                _joinRequests.value = _joinRequests.value.toMutableMap().apply {
-                    put(chatId, requests)
-                }
-                requests
-            } else {
-                println("❌ Failed to fetch join requests: ${response.status}")
-                emptyList()
-            }
-        } catch (e: Exception) {
-            println("❌ Failed to fetch join requests: ${e.message}")
-            emptyList()
-        }
     }
 
     /**
@@ -287,25 +258,9 @@ class HttpClientService {
     }
 
     /**
-     * Mark a chat as read.
-     */
-    suspend fun markChatAsRead(chatId: String) {
-        try {
-            val response = httpClient.post("$serverBaseUrl/api/chats/$chatId/mark-read")
-            if (response.status.isSuccess()) {
-                println("✅ Marked chat $chatId as read")
-            } else {
-                println("❌ Failed to mark chat as read: ${response.status}")
-            }
-        } catch (e: Exception) {
-            println("❌ Failed to mark chat as read: ${e.message}")
-        }
-    }
-
-    /**
      * Request to join a chat
      */
-    suspend fun requestToJoinChat(chatId: String, keyPackage: String): Boolean {
+    suspend fun requestToJoinChat(chatId: String): Boolean {
         return try {
             val userId = _currentDesktopUserId.value?.userId ?: return false
             val keyPackage = _currentDesktopUserId.value?.client?.generateKeyPackageMessage() ?: return false
@@ -332,30 +287,6 @@ class HttpClientService {
         } catch (e: Exception) {
             println("❌ Failed to send join request: ${e.message}")
             false
-        }
-    }
-
-    /**
-     * Get user status for a specific chat
-     */
-    suspend fun getUserChatStatus(chatId: String): ChatMembershipStatus {
-        return try {
-            val userId = _currentDesktopUserId.value?.userId ?: return ChatMembershipStatus.NOT_MEMBER
-            val response = httpClient.get("$serverBaseUrl/api/users/$userId/chats/$chatId/status") {
-                accept(ContentType.Application.Json)
-            }
-
-            if (response.status.isSuccess()) {
-                val statusMap = response.body<Map<String, String>>()
-                val statusString = statusMap["status"] ?: "NOT_MEMBER"
-                ChatMembershipStatus.valueOf(statusString)
-            } else {
-                println("❌ Failed to get user chat status: ${response.status}")
-                ChatMembershipStatus.NOT_MEMBER
-            }
-        } catch (e: Exception) {
-            println("❌ Failed to get user chat status: ${e.message}")
-            ChatMembershipStatus.NOT_MEMBER
         }
     }
 

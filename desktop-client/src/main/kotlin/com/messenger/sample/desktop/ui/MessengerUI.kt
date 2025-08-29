@@ -224,9 +224,7 @@ fun MessengerUI(
                                     onRequestToJoin = { chatId ->
                                         coroutineScope.launch {
                                             try {
-                                                // For now, use a dummy key package
-                                                val keyPackage = "dummy_key_package_${System.currentTimeMillis()}"
-                                                val success = clientService.requestToJoinChat(chatId, keyPackage)
+                                                val success = clientService.requestToJoinChat(chatId)
                                                 if (success) {
                                                     println("✅ Join request sent successfully")
                                                 } else {
