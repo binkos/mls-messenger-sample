@@ -2,6 +2,7 @@ package com.messenger.sample.desktop.services
 
 import com.messenger.sample.desktop.ui.createClient
 import com.messenger.sample.desktop.ui.models.DesktopUser
+import com.messenger.sample.shared.models.AcceptJoinRequestRequest
 import com.messenger.sample.shared.models.ChatGroup
 import com.messenger.sample.shared.models.ChatGroupWithUserStatus
 import com.messenger.sample.shared.models.ChatMembershipStatus
@@ -19,6 +20,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -49,6 +51,7 @@ import kotlinx.serialization.json.Json
 import uniffi.mls_rs_uniffi.FfiConverterTypeMessage
 import uniffi.mls_rs_uniffi.Group
 import uniffi.mls_rs_uniffi.Message
+import uniffi.mls_rs_uniffi.RatchetTree
 import uniffi.mls_rs_uniffi.ReceivedMessage
 import uniffi.mls_rs_uniffi.use
 
@@ -131,9 +134,7 @@ class HttpClientService {
                     val response = httpClient.get("$serverBaseUrl/api/users/$userId/events") {
                         accept(ContentType.Application.Json)
                         if (lastEventId != null) {
-                            url {
-                                parameters.append("since", lastEventId)
-                            }
+                            parameter("since", lastEventId)
                         }
                     }
                     if (response.status.isSuccess()) {
@@ -229,29 +230,6 @@ class HttpClientService {
         return _messages[chatId] ?: emptyList()
     }
 
-    /**
-     * Accept a join request.
-     */
-    suspend fun acceptJoinRequest(joinRequest: JoinRequest) {
-        try {
-            val response = httpClient.post("$serverBaseUrl/api/join-requests/${joinRequest.id}/accept")
-            if (response.status.isSuccess()) {
-                println("✅ Accepted join request from ${joinRequest.userName}")
-
-                // Update local state
-                val currentRequests = _joinRequests.value.toMutableMap()
-                currentRequests[joinRequest.groupId] =
-                    currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id } ?: emptyList()
-                _joinRequests.value = currentRequests
-            } else {
-                println("❌ Failed to accept join request: ${response.status}")
-                throw Exception("Failed to accept join request: ${response.status}")
-            }
-        } catch (e: Exception) {
-            println("❌ Failed to accept join request: ${e.message}")
-            throw e
-        }
-    }
 
     /**
      * Decline a join request.
@@ -307,6 +285,43 @@ class HttpClientService {
         } catch (e: Exception) {
             println("❌ Failed to send join request: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * Accept a join request with ratchet tree and welcome message
+     */
+    suspend fun acceptJoinRequest(request: JoinRequest) {
+        return try {
+            val keyPackageByteArray = Base64.getDecoder().decode(request.keyPackage)
+            val keyPackage = deserializeMessage(keyPackageByteArray)
+
+            val group = groups[request.groupId] ?: return
+
+            val commitOutput = group.addMembers(listOf(keyPackage))
+            group.processIncomingMessage(commitOutput.commitMessage)
+            group.writeToStorage()
+
+            val welcomeMessageBytes = serializeMessage(commitOutput.welcomeMessage ?: return)
+            val ratchetTree = Base64.getEncoder().encodeToString(commitOutput.ratchetTree?.bytes ?: return)
+
+            val acceptRequest = AcceptJoinRequestRequest(
+                ratchetTree = ratchetTree,
+                welcomeMessage = Base64.getEncoder().encodeToString(welcomeMessageBytes)
+            )
+
+            val response = httpClient.post("$serverBaseUrl/api/join-requests/${request.id}/accept") {
+                contentType(ContentType.Application.Json)
+                setBody(acceptRequest)
+            }
+
+            if (response.status.isSuccess()) {
+                println("✅ Join request accepted: ${request.id}")
+            } else {
+                println("❌ Failed to accept join request: ${response.status}")
+            }
+        } catch (e: Exception) {
+            println("❌ Failed to accept join request: ${e.message}")
         }
     }
 
@@ -403,13 +418,38 @@ class HttpClientService {
 
                 EventType.JOIN_APPROVED -> {
                     val chatId = event.chatId ?: return@forEach
-                    val approvedUserName = event.data["approvedUserName"] ?: return@forEach
                     val requestId = event.data["requestId"] ?: return@forEach
+                    val ratchetTree = event.data["ratchetTree"] ?: return@forEach
+                    val welcomeMessage = event.data["welcomeMessage"] ?: return@forEach
 
                     // Remove the join request
                     removeJoinRequestById(chatId, requestId)
 
-                    println("✅ Join request approved for $approvedUserName")
+                    // Process the welcome message to join the group
+                    try {
+                        val welcomeMessageBytes = Base64.getDecoder().decode(welcomeMessage)
+                        val ratchetTreeBytes = Base64.getDecoder().decode(ratchetTree)
+
+                        // Join the group using welcome message
+                        _currentDesktopUserId.value?.let { desktopUser ->
+                            val welcomeMessageObj = deserializeMessage(welcomeMessageBytes)
+
+                            val joinInfo =
+                                desktopUser.client.joinGroup(RatchetTree(ratchetTreeBytes), welcomeMessageObj)
+
+                            // Get the joined group and store it
+                            val group = joinInfo.group
+                            group.writeToStorage()
+
+                            println("✅ Successfully joined group $chatId")
+                            // Update the group in our local storage
+                            groups[chatId] = group
+                        }
+                    } catch (e: Exception) {
+                        println("❌ Failed to process welcome message: ${e.message}")
+                    }
+
+                    println("✅ Join request approved and group joined successfully")
                 }
 
                 EventType.JOIN_DECLINED -> {
@@ -432,36 +472,31 @@ class HttpClientService {
                 }
 
                 EventType.MESSAGE_SENT -> {
-                    messageMutex.withLock {
-                        val chatId = event.chatId ?: return@forEach
-                        val currentMessages = _messages[chatId]?.toMutableList() ?: mutableListOf<ChatMessage>()
+                    val chatId = event.chatId ?: return@forEach
+                    val messageDataByteArray = Base64.getDecoder().decode(event.data["message"])
+                    val message = deserializeMessage(messageDataByteArray)
 
-                        val messageDataByteArray = Base64.getDecoder().decode(event.data["message"])
-                        val message = deserializeMessage(messageDataByteArray)
-                        groups[chatId]?.processIncomingMessage(message)?.use { receivedMessage ->
-                            var messageText = ""
-                            when (receivedMessage) {
-                                is ReceivedMessage.ApplicationMessage -> {
-                                    messageText = receivedMessage.data.toString()
-                                }
-                                else -> {
-                                    messageText = ""
-                                }
-//                                is ReceivedMessage.Commit -> TODO()
-//                                ReceivedMessage.GroupInfo -> TODO()
-//                                ReceivedMessage.KeyPackage -> TODO()
-//                                is ReceivedMessage.ReceivedProposal -> TODO()
-//                                ReceivedMessage.Welcome -> TODO()
+                    groups[chatId]?.processIncomingMessage(message)?.use { receivedMessage ->
+                        val messageText = when (receivedMessage) {
+                            is ReceivedMessage.ApplicationMessage -> {
+                                receivedMessage.data.toString()
                             }
 
-                            val chatMessage = ChatMessage(
-                                id = event.data["id"] ?: return@forEach,
-                                userName = event.data["userName"] ?: return@forEach,
-                                message = messageText,
-                                timestamp = event.data["timestamp"]?.toLong() ?: return@forEach,
-                                isOwnMessage = false
-                            )
+                            else -> {
+                                ""
+                            }
+                        }
 
+                        val chatMessage = ChatMessage(
+                            id = event.data["id"] ?: return@forEach,
+                            userName = event.data["userName"] ?: return@forEach,
+                            message = messageText,
+                            timestamp = event.data["timestamp"]?.toLong() ?: return@forEach,
+                            isOwnMessage = false
+                        )
+
+                        messageMutex.withLock {
+                            val currentMessages = _messages[chatId]?.toMutableList() ?: mutableListOf<ChatMessage>()
                             currentMessages += chatMessage
                             _messages[chatId] = currentMessages
                             messagesTriggerFlow.value += 1

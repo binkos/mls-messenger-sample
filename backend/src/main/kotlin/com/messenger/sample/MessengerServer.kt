@@ -1,10 +1,12 @@
 package com.messenger.sample
 
 import com.messenger.sample.services.ServerStorage
+import com.messenger.sample.shared.models.AcceptJoinRequestRequest
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
+import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.SendMessageRequest
 import io.ktor.http.ContentType
@@ -194,34 +196,64 @@ fun main() {
             // Accept join request (admin function)
             post("/api/join-requests/{requestId}/accept") {
                 val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    // Find the join request first
-                    val allChats = ServerStorage.getAllChats()
-                    var foundRequest: JoinRequest? = null
-                    var foundChatId: String? = null
+                try {
+                    val acceptRequest = call.receive<AcceptJoinRequestRequest>()
+                    runBlocking {
+                        // Find the join request first
+                        val allChats = ServerStorage.getAllChats()
+                        var foundRequest: JoinRequest? = null
+                        var foundChatId: String? = null
 
-                    for (chat in allChats) {
-                        val requests = ServerStorage.getJoinRequests(chat.id)
-                        val request = requests.find { it.id == requestId }
-                        if (request != null) {
-                            foundRequest = request
-                            foundChatId = chat.id
-                            break
+                        for (chat in allChats) {
+                            val requests = ServerStorage.getJoinRequests(chat.id)
+                            val request = requests.find { it.id == requestId }
+                            if (request != null) {
+                                foundRequest = request
+                                foundChatId = chat.id
+                                break
+                            }
+                        }
+
+                        if (foundRequest != null && foundChatId != null) {
+                            val chatId = foundChatId // Non-null assertion
+                            val request = foundRequest // Non-null assertion
+                            
+                            // Remove the join request
+                            ServerStorage.removeJoinRequest(chatId, requestId)
+
+                            // Update user status to MEMBER
+                            ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.MEMBER)
+
+                            // Send GROUP_CREATED event with MEMBER status to the approved user
+                            ServerStorage.createEvent(
+                                userId = request.userName,
+                                type = EventType.GROUP_CREATED,
+                                chatId = chatId,
+                                data = mapOf(
+                                    "name" to (allChats.find { it.id == chatId }?.name ?: "Unknown Chat"),
+                                    "type" to ChatMembershipStatus.MEMBER.ordinal.toString()
+                                )
+                            )
+
+                            // Send JOIN_APPROVED event with ratchet tree and welcome message
+                            ServerStorage.createEvent(
+                                userId = request.userName,
+                                type = EventType.JOIN_APPROVED,
+                                chatId = chatId,
+                                data = mapOf(
+                                    "requestId" to requestId,
+                                    "ratchetTree" to acceptRequest.ratchetTree,
+                                    "welcomeMessage" to acceptRequest.welcomeMessage
+                                )
+                            )
+
+                            call.respond(HttpStatusCode.OK, "Join request accepted")
+                        } else {
+                            call.respond(HttpStatusCode.NotFound, "Join request not found")
                         }
                     }
-
-                    if (foundRequest != null && foundChatId != null) {
-                        val chatId = foundChatId // Non-null assertion
-                        val request = foundRequest // Non-null assertion
-                        ServerStorage.removeJoinRequest(chatId, requestId)
-
-                        // Update user status to MEMBER
-                        ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.MEMBER)
-
-                        call.respond(HttpStatusCode.OK, "Join request accepted")
-                    } else {
-                        call.respond(HttpStatusCode.NotFound, "Join request not found")
-                    }
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
                 }
             }
 

@@ -224,7 +224,7 @@ object ServerStorage {
     /**
      * Create and add an event
      */
-    private suspend fun createEvent(
+    suspend fun createEvent(
         userId: String,
         type: EventType,
         chatId: String? = null,

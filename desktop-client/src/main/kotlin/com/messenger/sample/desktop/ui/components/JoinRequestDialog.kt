@@ -140,7 +140,9 @@ fun JoinRequestDialog(
                 }
 
                 Button(
-                    onClick = { onAccept(joinRequest) }
+                    onClick = { 
+                        onAccept(joinRequest)
+                    }
                 ) {
                     Text("Accept")
                 }
