@@ -3,11 +3,12 @@ package com.messenger.sample.desktop.services
 import com.messenger.sample.desktop.ui.createClient
 import com.messenger.sample.desktop.ui.models.DesktopUser
 import com.messenger.sample.shared.models.ChatGroup
-import com.messenger.sample.shared.models.ChatGroupWithUserStatus
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
+import com.messenger.sample.shared.models.Event
+import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.SendMessageRequest
 import io.ktor.client.HttpClient
@@ -32,13 +33,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import uniffi.mls_rs_uniffi.FfiConverterTypeMessage
 import uniffi.mls_rs_uniffi.Group
@@ -60,12 +64,14 @@ class HttpClientService {
         }
     }
 
-    // Local state
-    private val _chatsWithStatus = MutableStateFlow<List<ChatGroupWithUserStatus>>(emptyList())
-    val chatsWithStatus: StateFlow<List<ChatGroupWithUserStatus>> = _chatsWithStatus.asStateFlow()
+    // Local state - managed by events
+    private val _chats = MutableStateFlow<List<ChatGroup>>(emptyList())
+    val chats: StateFlow<List<ChatGroup>> = _chats.asStateFlow()
 
-    private val _messages = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
-    val messages: StateFlow<Map<String, List<ChatMessage>>> = _messages.asStateFlow()
+    val messageMutex = Mutex()
+    private val _messages = HashMap<String, List<ChatMessage>>()
+    private val messagesTriggerFlow = MutableStateFlow(0)
+    val messages: Flow<Map<String, List<ChatMessage>>> = messagesTriggerFlow.map { _messages }
 
     private val _joinRequests = MutableStateFlow<Map<String, List<JoinRequest>>>(emptyMap())
     val joinRequests: StateFlow<Map<String, List<JoinRequest>>> = _joinRequests.asStateFlow()
@@ -73,12 +79,13 @@ class HttpClientService {
     private val _currentDesktopUserId = MutableStateFlow<DesktopUser?>(null)
     val currentDesktopUserId: StateFlow<DesktopUser?> = _currentDesktopUserId.asStateFlow()
 
+    private val _lastProcessedEventId = MutableStateFlow<String?>(null)
+    val lastProcessedEventId: StateFlow<String?> = _lastProcessedEventId.asStateFlow()
+
     private val groups: ConcurrentHashMap<String, Group> = ConcurrentHashMap()
 
     // Polling jobs
-    private var chatsPollingJob: Job? = null
-    private var messagesPollingJob: Job? = null
-    private var joinRequestsPollingJob: Job? = null
+    private var eventsPollingJob: Job? = null
 
     // Server configuration
     private val serverBaseUrl = "http://localhost:8080"
@@ -92,74 +99,37 @@ class HttpClientService {
     }
 
     /**
-     * Start polling for data from the server.
+     * Start polling for events from the server.
      */
     private fun startPolling() {
-        // Poll chats with user status every 4 seconds
-        chatsPollingJob = coroutineScope.launch {
-            val mlsClient = currentDesktopUserId.value?.client
-            while (isActive && mlsClient != null) {
-                try {
-                    val userId = _currentDesktopUserId.value?.userId ?: continue
-                    val response = httpClient.get("$serverBaseUrl/api/users/$userId/chats") {
-                        accept(ContentType.Application.Json)
-                    }
-                    if (response.status.isSuccess()) {
-                        val chatsWithStatus = response.body<List<ChatGroupWithUserStatus>>()
-                        _chatsWithStatus.value = chatsWithStatus
-
-                        chatsWithStatus
-                            .filter { it.userStatus == ChatMembershipStatus.MEMBER }
-                            .forEach {
-                                if (groups.get(it.id) == null) {
-                                    groups[it.id] = mlsClient.createGroup(it.id.toByteArray())
-                                        .also { it.writeToStorage() }
-                                }
-                            }
-
-                        println("✅ Fetched ${chatsWithStatus.size} chats with user status from server")
-                    } else {
-                        println("❌ Failed to fetch chats with user status: ${response.status}")
-                    }
-                } catch (e: Exception) {
-                    println("❌ Failed to fetch chats with user status: ${e.message}")
-                }
-                delay(4000) // 4 seconds
-            }
-        }
-
-        // Poll join requests for member chats every 3 seconds
-        joinRequestsPollingJob = coroutineScope.launch {
+        // Poll events every 2 seconds
+        eventsPollingJob = coroutineScope.launch {
             while (isActive) {
                 try {
-                    val currentChatsWithStatus = _chatsWithStatus.value
-                    val memberChats = currentChatsWithStatus.filter { it.userStatus == ChatMembershipStatus.MEMBER }
-                    val newJoinRequests = mutableMapOf<String, List<JoinRequest>>()
-
-                    memberChats.forEach { chat ->
-                        try {
-                            val response = httpClient.get("$serverBaseUrl/api/chats/${chat.id}/join-requests") {
-                                accept(ContentType.Application.Json)
-                            }
-                            if (response.status.isSuccess()) {
-                                val chatJoinRequests = response.body<List<JoinRequest>>()
-                                if (chatJoinRequests.isNotEmpty()) {
-                                    newJoinRequests[chat.id] = chatJoinRequests
+                    val userId = _currentDesktopUserId.value?.userId
+                    if (userId != null) {
+                        val lastEventId = _lastProcessedEventId.value
+                        val response = httpClient.get("$serverBaseUrl/api/users/$userId/events") {
+                            accept(ContentType.Application.Json)
+                            if (lastEventId != null) {
+                                url {
+                                    parameters.append("since", lastEventId)
                                 }
                             }
-                        } catch (e: Exception) {
-                            println("❌ Failed to fetch join requests for chat ${chat.id}: ${e.message}")
+                        }
+                        if (response.status.isSuccess()) {
+                            val newEvents = response.body<List<Event>>()
+                            if (newEvents.isNotEmpty()) {
+                                processEvents(newEvents)
+                                _lastProcessedEventId.value = newEvents.last().id
+                                println("✅ Processed ${newEvents.size} new events")
+                            }
                         }
                     }
-
-                    _joinRequests.value = newJoinRequests
-                    if (newJoinRequests.isNotEmpty()) {
-                        println("✅ Fetched join requests for ${newJoinRequests.size} chats from server")
-                    }
                 } catch (e: Exception) {
-                    println("❌ Failed to fetch join requests: ${e.message}")
+                    println("❌ Failed to fetch events: ${e.message}")
                 }
-                delay(3000) // 3 seconds
+                delay(2000) // 2 seconds
             }
         }
     }
@@ -170,7 +140,7 @@ class HttpClientService {
     suspend fun sendMessage(chatId: String, messageText: String) {
         try {
             val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
-            val group = groups[chatId] ?: return
+            val group = groups[chatId] ?: throw Exception("Group not found for chat $chatId")
             val message = group.encryptApplicationMessage(messageText.toByteArray()).use { serializeMessage(it) }
             val request = SendMessageRequest(
                 userName = userId,
@@ -183,7 +153,19 @@ class HttpClientService {
             }
 
             if (response.status.isSuccess()) {
-                println("✅ Message sent to chat $chatId")
+                val createdMessage = response.body<ChatMessage>()
+                messageMutex.withLock {
+                    // Add the message to local state
+                    val currentMessages = _messages[chatId] ?: emptyList()
+                    val updatedMessages = currentMessages + createdMessage.copy(message = messageText)
+                    _messages[chatId] = updatedMessages
+                }
+
+                // Trigger UI update
+                messagesTriggerFlow.value = messagesTriggerFlow.value + 1
+
+                println("✅ Message sent to chat $chatId: ${createdMessage.message}")
+                createdMessage
             } else {
                 println("❌ Failed to send message: ${response.status}")
                 throw Exception("Failed to send message: ${response.status}")
@@ -229,7 +211,7 @@ class HttpClientService {
      * Get messages for a specific chat.
      */
     fun getMessagesForChat(chatId: String): List<ChatMessage> {
-        return _messages.value[chatId] ?: emptyList()
+        return _messages[chatId] ?: emptyList()
     }
 
     /**
@@ -378,12 +360,100 @@ class HttpClientService {
     }
 
     /**
+     * Helper function to remove a join request by ID
+     */
+    private fun removeJoinRequestById(chatId: String, requestId: String) {
+        val currentRequests = _joinRequests.value.toMutableMap()
+        currentRequests[chatId]?.let { requests ->
+            val filteredRequests = requests.filter { it.id != requestId }
+            currentRequests[chatId] = filteredRequests.toMutableList()
+        }
+        _joinRequests.value = currentRequests
+    }
+
+    /**
+     * Process incoming events and update local state
+     */
+    private fun processEvents(events: List<Event>) {
+        events.forEach { event ->
+            when (event.type) {
+                EventType.GROUP_CREATED -> {
+                    val chatId = event.chatId ?: return@forEach
+                    val chatName = event.data["name"] ?: return@forEach
+                    val newChat = ChatGroup(
+                        id = chatId,
+                        name = chatName,
+                        lastMessage = null,
+                        lastMessageTime = null,
+                        unreadCount = 0
+                    )
+                    val currentChats = _chats.value.toMutableList()
+                    currentChats.add(newChat)
+                    _chats.value = currentChats
+                    println("✅ Added new chat: $chatName")
+                }
+
+                EventType.JOIN_REQUESTED -> {
+                    val chatId = event.chatId ?: return@forEach
+                    val requesterName = event.data["requesterName"] ?: return@forEach
+                    val requestId = event.data["requestId"] ?: return@forEach
+                    val joinRequest = JoinRequest(
+                        id = requestId,
+                        userName = requesterName,
+                        keyPackage = event.data["keyPackage"] ?: "",
+                        groupId = chatId,
+                        timestamp = event.timestamp
+                    )
+
+                    // Add join request to the map
+                    val currentRequests = _joinRequests.value.toMutableMap()
+                    val existingRequests = currentRequests[chatId] ?: mutableListOf<JoinRequest>()
+                    val updatedRequests = existingRequests.toMutableList()
+                    updatedRequests.add(joinRequest)
+                    currentRequests[chatId] = updatedRequests
+                    _joinRequests.value = currentRequests
+
+                    println("✅ Added join request from $requesterName")
+                }
+
+                EventType.JOIN_APPROVED -> {
+                    val chatId = event.chatId ?: return@forEach
+                    val approvedUserName = event.data["approvedUserName"] ?: return@forEach
+                    val requestId = event.data["requestId"] ?: return@forEach
+
+                    // Remove the join request
+                    removeJoinRequestById(chatId, requestId)
+
+                    println("✅ Join request approved for $approvedUserName")
+                }
+
+                EventType.JOIN_DECLINED -> {
+                    val chatId = event.chatId ?: return@forEach
+                    val declinedUserName = event.data["declinedUserName"] ?: return@forEach
+                    val requestId = event.data["requestId"] ?: return@forEach
+
+                    // Remove the join request
+                    removeJoinRequestById(chatId, requestId)
+
+                    println("❌ Join request declined for $declinedUserName")
+                }
+
+                EventType.USER_JOINED -> {
+                    println("✅ User joined: ${event.data["userName"]}")
+                }
+
+                EventType.USER_LEFT -> {
+                    println("👋 User left: ${event.data["userName"]}")
+                }
+            }
+        }
+    }
+
+    /**
      * Stop the service and clean up resources.
      */
     fun stop() {
-        chatsPollingJob?.cancel()
-        messagesPollingJob?.cancel()
-        joinRequestsPollingJob?.cancel()
+        eventsPollingJob?.cancel()
         coroutineScope.cancel()
         httpClient.close()
         _currentDesktopUserId.value?.client?.destroy()
@@ -391,32 +461,21 @@ class HttpClientService {
 
 
     suspend fun startPollingMessagesOfChat(chatId: String) {
-        messagesPollingJob?.cancelAndJoin()
-        messagesPollingJob = coroutineScope.launch {
-            while (isActive) {
-                try {
-                    val currentDesktop = _currentDesktopUserId.value?.userId
-                    val newMessages = mutableMapOf<String, List<ChatMessage>>()
-
-                    try {
-                        val response = httpClient.get("$serverBaseUrl/api/chats/$chatId/messages") {
-                            accept(ContentType.Application.Json)
-                        }
-                        if (response.status.isSuccess()) {
-                            val chatMessages = response.body<List<ChatMessage>>()
-                            newMessages[chatId] = chatMessages
-                                .map { it.copy(isOwnMessage = currentDesktop == it.id) }
-                        }
-                    } catch (e: Exception) {
-                        println("❌ Failed to fetch messages for chat ${chatId}: ${e.message}")
-                    }
-                    _messages.value = newMessages
-                    println("✅ Fetched messages for ${newMessages.size} chats from server")
-                } catch (e: Exception) {
-                    println("❌ Failed to fetch messages: ${e.message}")
-                }
-                delay(2000) // 2 seconds
+        // For now, we'll fetch messages directly without polling
+        try {
+            val response = httpClient.get("$serverBaseUrl/api/chats/$chatId/messages") {
+                accept(ContentType.Application.Json)
             }
+            if (response.status.isSuccess()) {
+                messageMutex.withLock {
+                    val chatMessages = response.body<List<ChatMessage>>()
+                    val currentMessages = _messages.toMutableMap()
+                    currentMessages[chatId] = chatMessages
+                    println("✅ Fetched ${chatMessages.size} messages for chat $chatId")
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Failed to fetch messages for chat $chatId: ${e.message}")
         }
     }
 

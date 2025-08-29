@@ -66,3 +66,23 @@ data class ChatGroupWithUserStatus(
     val unreadCount: Int = 0,
     val userStatus: ChatMembershipStatus = ChatMembershipStatus.NOT_MEMBER
 )
+
+@Serializable
+data class Event(
+    val id: String,
+    val type: EventType,
+    val userId: String, // Target user who should receive this event
+    val chatId: String? = null,
+    val data: Map<String, String> = emptyMap(),
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Serializable
+enum class EventType {
+    GROUP_CREATED,      // User created a group
+    JOIN_REQUESTED,     // Someone requested to join a group
+    JOIN_APPROVED,      // Join request was approved
+    JOIN_DECLINED,      // Join request was declined
+    USER_JOINED,        // User joined a group
+    USER_LEFT          // User left a group
+}

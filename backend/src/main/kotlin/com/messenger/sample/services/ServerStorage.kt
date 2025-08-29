@@ -3,6 +3,8 @@ package com.messenger.sample.services
 import com.messenger.sample.shared.models.ChatGroup
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
+import com.messenger.sample.shared.models.Event
+import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.UserChatStatus
 import java.util.concurrent.ConcurrentHashMap
@@ -20,6 +22,8 @@ object ServerStorage {
     private val messages = ConcurrentHashMap<String, MutableList<ChatMessage>>()
     private val joinRequests = ConcurrentHashMap<String, MutableList<JoinRequest>>()
     private val userChatStatuses = ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
+    private val events = ConcurrentHashMap<String, MutableList<Event>>() // userId -> List<Event>
+    private var nextEventId = 1L
     
     suspend fun getAllChats(): List<ChatGroup> {
         return chats.values.toList()
@@ -54,6 +58,26 @@ object ServerStorage {
     suspend fun addJoinRequest(joinRequest: JoinRequest) {
         val requests = joinRequests.getOrPut(joinRequest.groupId) { mutableListOf() }
         requests.add(joinRequest)
+        
+        // Create event for join request (notify group members)
+        // For now, we'll create an event for the group creator
+        // In a real app, you'd notify all group members
+        val groupMembers = userChatStatuses.entries
+            .filter { (_, statuses) -> statuses.any { it.chatId == joinRequest.groupId && it.status == ChatMembershipStatus.MEMBER } }
+            .map { it.key }
+        
+        groupMembers.forEach { memberId ->
+            createEvent(
+                userId = memberId,
+                type = EventType.JOIN_REQUESTED,
+                chatId = joinRequest.groupId,
+                data = mapOf(
+                    "requesterName" to joinRequest.userName,
+                    "requestId" to joinRequest.id,
+                    "keyPackage" to joinRequest.keyPackage
+                )
+            )
+        }
     }
     
     suspend fun removeJoinRequest(chatId: String, requestId: String) {
@@ -76,6 +100,14 @@ object ServerStorage {
         // Mark the creator as a member of the chat
         if (creatorUserId != null) {
             setUserChatStatus(creatorUserId, chatId, ChatMembershipStatus.MEMBER)
+            
+            // Create event for group creation
+            createEvent(
+                userId = creatorUserId,
+                type = EventType.GROUP_CREATED,
+                chatId = chatId,
+                data = mapOf("name" to name)
+            )
         }
         
         newChat
@@ -154,5 +186,52 @@ object ServerStorage {
                 userStatus = userStatus
             )
         }
+    }
+
+    /**
+     * Add an event for a specific user
+     */
+    private suspend fun addEvent(userId: String, event: Event) {
+        val userEvents = events.getOrPut(userId) { mutableListOf() }
+        userEvents.add(event)
+    }
+
+    /**
+     * Get events for a user since a specific event ID
+     */
+    suspend fun getUserEvents(userId: String, sinceEventId: String? = null): List<Event> {
+        val userEvents = events[userId] ?: emptyList()
+        if (sinceEventId == null) {
+            return userEvents
+        }
+        
+        val sinceIndex = userEvents.indexOfFirst { it.id == sinceEventId }
+        return if (sinceIndex == -1) {
+            userEvents
+        } else {
+            userEvents.subList(sinceIndex + 1, userEvents.size)
+        }
+    }
+
+    /**
+     * Create and add an event
+     */
+    private suspend fun createEvent(
+        userId: String,
+        type: EventType,
+        chatId: String? = null,
+        data: Map<String, String> = emptyMap()
+    ): Event {
+        val eventId = "evt_${nextEventId++}"
+        val event = Event(
+            id = eventId,
+            type = type,
+            userId = userId,
+            chatId = chatId,
+            data = data,
+            timestamp = System.currentTimeMillis()
+        )
+        addEvent(userId, event)
+        return event
     }
 }

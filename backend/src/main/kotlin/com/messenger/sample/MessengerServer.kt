@@ -163,6 +163,16 @@ fun main() {
                 }
             }
 
+            // Get events for a user
+            get("/api/users/{userId}/events") {
+                val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val sinceEventId = call.request.queryParameters["since"]
+                runBlocking {
+                    val events = ServerStorage.getUserEvents(userId, sinceEventId)
+                    call.respond(events)
+                }
+            }
+
             // Request to join a chat
             post("/api/users/{userId}/chats/{chatId}/join-request") {
                 val userId = call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
