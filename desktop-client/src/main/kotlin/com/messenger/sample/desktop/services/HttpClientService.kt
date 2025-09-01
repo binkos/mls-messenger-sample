@@ -158,6 +158,7 @@ class HttpClientService {
      */
     suspend fun sendMessage(chatId: String, messageText: String) {
         try {
+            // MARK: MLS CODE HERE
             val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
             val group = groups[chatId] ?: throw Exception("Group not found for chat $chatId")
             val message = group.encryptApplicationMessage(messageText.toByteArray()).use { serializeMessage(it) }
@@ -293,6 +294,7 @@ class HttpClientService {
      */
     suspend fun acceptJoinRequest(request: JoinRequest) {
         return try {
+            // MARK: MLS CODE HERE
             val keyPackageByteArray = Base64.getDecoder().decode(request.keyPackage)
             val keyPackage = deserializeMessage(keyPackageByteArray)
 
@@ -437,6 +439,7 @@ class HttpClientService {
 
                     // Process the welcome message to join the group
                     try {
+                        // MARK: MLS CODE HERE
                         val welcomeMessageBytes = Base64.getDecoder().decode(welcomeMessage)
                         val ratchetTreeBytes = Base64.getDecoder().decode(ratchetTree)
 
@@ -529,6 +532,7 @@ class HttpClientService {
         _currentDesktopUserId.value?.client?.destroy()
     }
 
+    // MARK: MLS CODE HERE
     private fun serializeMessage(message: Message): ByteArray {
         val bufferSize = FfiConverterTypeMessage.allocationSize(message)
         val buffer = ByteBuffer.allocateDirect(bufferSize.toInt())
