@@ -298,9 +298,13 @@ class HttpClientService {
 
             val group = groups[request.groupId] ?: return
 
+            println("val group = groups[request.groupId] ?: return")
             val commitOutput = group.addMembers(listOf(keyPackage))
+            println("commitOutput")
             group.processIncomingMessage(commitOutput.commitMessage)
+            println("processIncomingMessage")
             group.writeToStorage()
+            println("group.writeToStorage()")
 
             val welcomeMessageBytes = serializeMessage(commitOutput.welcomeMessage ?: return)
             val ratchetTree = Base64.getEncoder().encodeToString(commitOutput.ratchetTree?.bytes ?: return)
@@ -353,29 +357,35 @@ class HttpClientService {
                         name = chatName,
                         membershipStatus = membershipStatus
                     )
-
+                    println(membershipStatus)
                     when (membershipStatus) {
                         ChatMembershipStatus.NOT_MEMBER -> {
                             _chats.update { chats ->
-                                val existingChat = chats.find { it.id == chatId }
-                                if (existingChat == null) {
+                                val chatSaved = chats.any { it.id == chatId }
+                                if (chatSaved) {
+                                    chats
+                                } else {
                                     val currentChats = _chats.value.toMutableList()
                                     currentChats.add(newChat)
                                     currentChats
-                                } else {
-                                    chats
                                 }
                             }
                         }
-
                         ChatMembershipStatus.MEMBER -> {
                             _chats.update { chats ->
-                                chats.map {
-                                    if (it.id == event.chatId) {
-                                        it.copy(membershipStatus = membershipStatus)
-                                    } else {
-                                        it
+                                val chatSaved = chats.any { it.id == chatId }
+                                if (chatSaved) {
+                                    chats.map {
+                                        if (it.id == event.chatId) {
+                                            it.copy(membershipStatus = membershipStatus)
+                                        } else {
+                                            it
+                                        }
                                     }
+                                } else {
+                                    val currentChats = _chats.value.toMutableList()
+                                    currentChats.add(newChat)
+                                    currentChats
                                 }
                             }
 
@@ -476,6 +486,7 @@ class HttpClientService {
                     val messageDataByteArray = Base64.getDecoder().decode(event.data["message"])
                     val message = deserializeMessage(messageDataByteArray)
 
+                    if (event.data["userName"] == currentDesktopUserId.value?.userId) return@forEach
                     groups[chatId]?.processIncomingMessage(message)?.use { receivedMessage ->
                         val messageText = when (receivedMessage) {
                             is ReceivedMessage.ApplicationMessage -> {

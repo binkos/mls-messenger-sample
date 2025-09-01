@@ -182,7 +182,7 @@ fun MessengerUI(
                                     )
 
                                     // Join requests button (only for members)
-                                    if (true) { // For now, assume all chats are member chats
+                                    if (selectedChat.membershipStatus == ChatMembershipStatus.MEMBER) { // For now, assume all chats are member chats
                                         val chatJoinRequests = joinRequests[selectedChatId] ?: emptyList()
                                         if (chatJoinRequests.isNotEmpty()) {
                                             Button(
@@ -201,12 +201,12 @@ fun MessengerUI(
                             Spacer(modifier = Modifier.height(16.dp))
 
                             // Show join button if user is not a member
-                            if (false) { // For now, assume all users are members
+                            if (selectedChat.membershipStatus != ChatMembershipStatus.MEMBER) { // For now, assume all users are members
                                 JoinChatButton(
                                     chat = ChatGroupWithUserStatus(
                                         id = selectedChat.id,
                                         name = selectedChat.name,
-                                        membershipStatus = ChatMembershipStatus.NOT_MEMBER
+                                        membershipStatus = selectedChat.membershipStatus
                                     ),
                                     onRequestToJoin = { chatId ->
                                         coroutineScope.launch {

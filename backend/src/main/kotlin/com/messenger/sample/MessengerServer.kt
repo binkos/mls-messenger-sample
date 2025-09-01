@@ -44,22 +44,18 @@ fun main() {
 
             // Get all chats
             get("/api/chats") {
-                runBlocking {
-                    val chats = ServerStorage.getAllChats()
-                    call.respond(chats)
-                }
+                val chats = ServerStorage.getAllChats()
+                call.respond(chats)
             }
 
             // Get specific chat
             get("/api/chats/{chatId}") {
                 val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    val chat = ServerStorage.getChat(chatId)
-                    if (chat != null) {
-                        call.respond(chat)
-                    } else {
-                        call.respond(HttpStatusCode.NotFound)
-                    }
+                val chat = ServerStorage.getChat(chatId)
+                if (chat != null) {
+                    call.respond(chat)
+                } else {
+                    call.respond(HttpStatusCode.NotFound)
                 }
             }
 
@@ -68,10 +64,8 @@ fun main() {
                 try {
                     val request = call.receive<CreateChatRequest>()
                     val userId = call.request.header("X-User-ID") // Get user ID from header
-                    runBlocking {
-                        val newChat = ServerStorage.createChat(request.name, userId)
-                        call.respond(HttpStatusCode.Created, newChat)
-                    }
+                    val newChat = ServerStorage.createChat(request.name, userId)
+                    call.respond(HttpStatusCode.Created, newChat)
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
                 }
@@ -101,10 +95,8 @@ fun main() {
             // Get join requests for a chat
             get("/api/chats/{chatId}/join-requests") {
                 val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    val requests = ServerStorage.getJoinRequests(chatId)
-                    call.respond(requests)
-                }
+                val requests = ServerStorage.getJoinRequests(chatId)
+                call.respond(requests)
             }
 
             // Create join request
@@ -131,30 +123,24 @@ fun main() {
             // Get chats with user status for a specific user
             get("/api/users/{userId}/chats") {
                 val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    val chatsWithStatus = ServerStorage.getChatsWithUserStatus(userId)
-                    call.respond(chatsWithStatus)
-                }
+                val chatsWithStatus = ServerStorage.getChatsWithUserStatus(userId)
+                call.respond(chatsWithStatus)
             }
 
             // Get user status for a specific chat
             get("/api/users/{userId}/chats/{chatId}/status") {
                 val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    val status = ServerStorage.getUserChatStatus(userId, chatId)
-                    call.respond(mapOf("status" to status))
-                }
+                val status = ServerStorage.getUserChatStatus(userId, chatId)
+                call.respond(mapOf("status" to status))
             }
 
             // Get events for a user
             get("/api/users/{userId}/events") {
                 val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val sinceEventId = call.request.queryParameters["since"]
-                runBlocking {
-                    val events = ServerStorage.getUserEvents(userId, sinceEventId)
-                    call.respond(events)
-                }
+                val events = ServerStorage.getUserEvents(userId, sinceEventId)
+                call.respond(events)
             }
 
             // Send existing groups to a user (when they connect)
@@ -172,22 +158,20 @@ fun main() {
                 val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 try {
                     val request = call.receive<CreateJoinRequestRequest>()
-                    runBlocking {
-                        // Create join request
-                        val joinRequest = JoinRequest(
-                            id = "req_${System.currentTimeMillis()}",
-                            userName = request.userName,
-                            keyPackage = request.keyPackage,
-                            groupId = request.groupId,
-                            timestamp = System.currentTimeMillis()
-                        )
-                        ServerStorage.addJoinRequest(joinRequest)
+                    // Create join request
+                    val joinRequest = JoinRequest(
+                        id = "req_${System.currentTimeMillis()}",
+                        userName = request.userName,
+                        keyPackage = request.keyPackage,
+                        groupId = request.groupId,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    ServerStorage.addJoinRequest(joinRequest)
 
-                        // Update user status to PENDING
-                        ServerStorage.setUserChatStatus(userId, chatId, ChatMembershipStatus.PENDING)
+                    // Update user status to PENDING
+                    ServerStorage.setUserChatStatus(userId, chatId, ChatMembershipStatus.PENDING)
 
-                        call.respond(HttpStatusCode.Created, joinRequest)
-                    }
+                    call.respond(HttpStatusCode.Created, joinRequest)
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
                 }
@@ -198,59 +182,57 @@ fun main() {
                 val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 try {
                     val acceptRequest = call.receive<AcceptJoinRequestRequest>()
-                    runBlocking {
-                        // Find the join request first
-                        val allChats = ServerStorage.getAllChats()
-                        var foundRequest: JoinRequest? = null
-                        var foundChatId: String? = null
+                    // Find the join request first
+                    val allChats = ServerStorage.getAllChats()
+                    var foundRequest: JoinRequest? = null
+                    var foundChatId: String? = null
 
-                        for (chat in allChats) {
-                            val requests = ServerStorage.getJoinRequests(chat.id)
-                            val request = requests.find { it.id == requestId }
-                            if (request != null) {
-                                foundRequest = request
-                                foundChatId = chat.id
-                                break
-                            }
+                    for (chat in allChats) {
+                        val requests = ServerStorage.getJoinRequests(chat.id)
+                        val request = requests.find { it.id == requestId }
+                        if (request != null) {
+                            foundRequest = request
+                            foundChatId = chat.id
+                            break
                         }
+                    }
 
-                        if (foundRequest != null && foundChatId != null) {
-                            val chatId = foundChatId // Non-null assertion
-                            val request = foundRequest // Non-null assertion
-                            
-                            // Remove the join request
-                            ServerStorage.removeJoinRequest(chatId, requestId)
+                    if (foundRequest != null && foundChatId != null) {
+                        val chatId = foundChatId // Non-null assertion
+                        val request = foundRequest // Non-null assertion
 
-                            // Update user status to MEMBER
-                            ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.MEMBER)
+                        // Remove the join request
+                        ServerStorage.removeJoinRequest(chatId, requestId)
 
-                            // Send GROUP_CREATED event with MEMBER status to the approved user
-                            ServerStorage.createEvent(
-                                userId = request.userName,
-                                type = EventType.GROUP_CREATED,
-                                chatId = chatId,
-                                data = mapOf(
-                                    "name" to (allChats.find { it.id == chatId }?.name ?: "Unknown Chat"),
-                                    "type" to ChatMembershipStatus.MEMBER.ordinal.toString()
-                                )
+                        // Update user status to MEMBER
+                        ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.MEMBER)
+
+                        // Send GROUP_CREATED event with MEMBER status to the approved user
+                        ServerStorage.createEvent(
+                            userId = request.userName,
+                            type = EventType.GROUP_CREATED,
+                            chatId = chatId,
+                            data = mapOf(
+                                "name" to (allChats.find { it.id == chatId }?.name ?: "Unknown Chat"),
+                                "type" to ChatMembershipStatus.MEMBER.ordinal.toString()
                             )
+                        )
 
-                            // Send JOIN_APPROVED event with ratchet tree and welcome message
-                            ServerStorage.createEvent(
-                                userId = request.userName,
-                                type = EventType.JOIN_APPROVED,
-                                chatId = chatId,
-                                data = mapOf(
-                                    "requestId" to requestId,
-                                    "ratchetTree" to acceptRequest.ratchetTree,
-                                    "welcomeMessage" to acceptRequest.welcomeMessage
-                                )
+                        // Send JOIN_APPROVED event with ratchet tree and welcome message
+                        ServerStorage.createEvent(
+                            userId = request.userName,
+                            type = EventType.JOIN_APPROVED,
+                            chatId = chatId,
+                            data = mapOf(
+                                "requestId" to requestId,
+                                "ratchetTree" to acceptRequest.ratchetTree,
+                                "welcomeMessage" to acceptRequest.welcomeMessage
                             )
+                        )
 
-                            call.respond(HttpStatusCode.OK, "Join request accepted")
-                        } else {
-                            call.respond(HttpStatusCode.NotFound, "Join request not found")
-                        }
+                        call.respond(HttpStatusCode.OK, "Join request accepted")
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, "Join request not found")
                     }
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
