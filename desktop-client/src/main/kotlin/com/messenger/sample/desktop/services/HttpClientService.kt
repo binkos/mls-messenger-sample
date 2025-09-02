@@ -51,8 +51,9 @@ import kotlinx.serialization.json.Json
 import uniffi.mls_rs_uniffi.FfiConverterTypeMessage
 import uniffi.mls_rs_uniffi.Group
 import uniffi.mls_rs_uniffi.Message
-import uniffi.mls_rs_uniffi.RatchetTree
 import uniffi.mls_rs_uniffi.ReceivedMessage
+import uniffi.mls_rs_uniffi.messageFromBytes
+import uniffi.mls_rs_uniffi.messageToBytes
 import uniffi.mls_rs_uniffi.use
 
 /**
@@ -161,7 +162,8 @@ class HttpClientService {
             // MARK: MLS CODE HERE
             val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
             val group = groups[chatId] ?: throw Exception("Group not found for chat $chatId")
-            val message = group.encryptApplicationMessage(messageText.toByteArray()).use { serializeMessage(it) }
+            println("SEND MESSAGE ${messageText.toByteArray().toString()}")
+            val message = group.encryptApplicationMessage(messageText.toByteArray()).use { messageToBytes(it) }
             val request = SendMessageRequest(
                 userName = userId,
                 message = Base64.getEncoder().encodeToString(message)
@@ -263,7 +265,7 @@ class HttpClientService {
         return try {
             val userId = _currentDesktopUserId.value?.userId ?: return false
             val keyPackage = _currentDesktopUserId.value?.client?.generateKeyPackageMessage() ?: return false
-            val bytes = serializeMessage(keyPackage)
+            val bytes = messageToBytes(keyPackage)
 
             val request = CreateJoinRequestRequest(
                 userName = userId,
@@ -296,32 +298,28 @@ class HttpClientService {
         return try {
             // MARK: MLS CODE HERE
             val keyPackageByteArray = Base64.getDecoder().decode(request.keyPackage)
-            val keyPackage = deserializeMessage(keyPackageByteArray)
+            val keyPackage = messageFromBytes(keyPackageByteArray)
 
             val group = groups[request.groupId] ?: return
 
-            println("val group = groups[request.groupId] ?: return")
             val commitOutput = group.addMembers(listOf(keyPackage))
-            println("commitOutput")
             group.processIncomingMessage(commitOutput.commitMessage)
-            println("processIncomingMessage")
             group.writeToStorage()
-            println("group.writeToStorage()")
 
-            val welcomeMessageBytes = serializeMessage(commitOutput.welcomeMessage ?: return)
-            val ratchetTree = Base64.getEncoder().encodeToString(commitOutput.ratchetTree?.bytes ?: return)
+            val welcomeMessageBytes = messageToBytes(commitOutput.welcomeMessage ?: return)
 
             val acceptRequest = AcceptJoinRequestRequest(
-                ratchetTree = ratchetTree,
                 welcomeMessage = Base64.getEncoder().encodeToString(welcomeMessageBytes)
             )
 
+            println(acceptRequest)
             val response = httpClient.post("$serverBaseUrl/api/join-requests/${request.id}/accept") {
                 contentType(ContentType.Application.Json)
                 setBody(acceptRequest)
             }
 
             if (response.status.isSuccess()) {
+                removeJoinRequestById(request.groupId, request.id)
                 println("✅ Join request accepted: ${request.id}")
             } else {
                 println("❌ Failed to accept join request: ${response.status}")
@@ -373,6 +371,7 @@ class HttpClientService {
                                 }
                             }
                         }
+
                         ChatMembershipStatus.MEMBER -> {
                             _chats.update { chats ->
                                 val chatSaved = chats.any { it.id == chatId }
@@ -431,7 +430,7 @@ class HttpClientService {
                 EventType.JOIN_APPROVED -> {
                     val chatId = event.chatId ?: return@forEach
                     val requestId = event.data["requestId"] ?: return@forEach
-                    val ratchetTree = event.data["ratchetTree"] ?: return@forEach
+//                    val ratchetTree = event.data["ratchetTree"] ?: return@forEach
                     val welcomeMessage = event.data["welcomeMessage"] ?: return@forEach
 
                     // Remove the join request
@@ -441,14 +440,14 @@ class HttpClientService {
                     try {
                         // MARK: MLS CODE HERE
                         val welcomeMessageBytes = Base64.getDecoder().decode(welcomeMessage)
-                        val ratchetTreeBytes = Base64.getDecoder().decode(ratchetTree)
+//                        val ratchetTreeBytes = Base64.getDecoder().decode(ratchetTree)
 
                         // Join the group using welcome message
                         _currentDesktopUserId.value?.let { desktopUser ->
-                            val welcomeMessageObj = deserializeMessage(welcomeMessageBytes)
+                            val welcomeMessageObj = messageFromBytes(welcomeMessageBytes)
 
                             val joinInfo =
-                                desktopUser.client.joinGroup(RatchetTree(ratchetTreeBytes), welcomeMessageObj)
+                                desktopUser.client.joinGroup(null, welcomeMessageObj)
 
                             // Get the joined group and store it
                             val group = joinInfo.group
@@ -457,6 +456,7 @@ class HttpClientService {
                             println("✅ Successfully joined group $chatId")
                             // Update the group in our local storage
                             groups[chatId] = group
+                            welcomeMessageObj.close()
                         }
                     } catch (e: Exception) {
                         println("❌ Failed to process welcome message: ${e.message}")
@@ -485,15 +485,16 @@ class HttpClientService {
                 }
 
                 EventType.MESSAGE_SENT -> {
+                    println(EventType.MESSAGE_SENT)
                     val chatId = event.chatId ?: return@forEach
                     val messageDataByteArray = Base64.getDecoder().decode(event.data["message"])
-                    val message = deserializeMessage(messageDataByteArray)
+                    val message = messageFromBytes(messageDataByteArray)
 
                     if (event.data["userName"] == currentDesktopUserId.value?.userId) return@forEach
                     groups[chatId]?.processIncomingMessage(message)?.use { receivedMessage ->
                         val messageText = when (receivedMessage) {
                             is ReceivedMessage.ApplicationMessage -> {
-                                receivedMessage.data.toString()
+                                receivedMessage.data.toString(Charsets.UTF_8)
                             }
 
                             else -> {

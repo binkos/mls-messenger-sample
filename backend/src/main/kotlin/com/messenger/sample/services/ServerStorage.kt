@@ -43,7 +43,7 @@ object ServerStorage {
             val groups = it.value
 
             val isGroupMember = groups.any { group -> group.chatId == chatId }
-            if (it.key == message.userName && isGroupMember) {
+            if (it.key != message.userName && isGroupMember) {
                 createEvent(
                     userId = userId,
                     type = EventType.MESSAGE_SENT,

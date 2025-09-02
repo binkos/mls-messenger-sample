@@ -41,7 +41,6 @@ data class CreateJoinRequestRequest(
 
 @Serializable
 data class AcceptJoinRequestRequest(
-    val ratchetTree: String,    // Base64 encoded ratchet tree
     val welcomeMessage: String  // Base64 encoded welcome message
 )
 

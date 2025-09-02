@@ -241,7 +241,7 @@ internal open class UniffiRustCallStatus : Structure() {
     }
 }
 
-class InternalException(message: String) : Exception(message)
+class InternalException(message: String) : kotlin.Exception(message)
 
 // Each top-level error class has a companion object that can lift the error from the call status's rust buffer
 interface UniffiRustCallStatusErrorHandler<E> {
@@ -253,7 +253,7 @@ interface UniffiRustCallStatusErrorHandler<E> {
 // synchronize itself
 
 // Call a rust function that returns a Result<>.  Pass in the Error class companion that corresponds to the Err
-private inline fun <U, E : Exception> uniffiRustCallWithError(
+private inline fun <U, E : kotlin.Exception> uniffiRustCallWithError(
     errorHandler: UniffiRustCallStatusErrorHandler<E>,
     callback: (UniffiRustCallStatus) -> U
 ): U {
@@ -264,7 +264,7 @@ private inline fun <U, E : Exception> uniffiRustCallWithError(
 }
 
 // Check UniffiRustCallStatus and throw an error if the call wasn't successful
-private fun <E : Exception> uniffiCheckCallStatus(
+private fun <E : kotlin.Exception> uniffiCheckCallStatus(
     errorHandler: UniffiRustCallStatusErrorHandler<E>,
     status: UniffiRustCallStatus
 ) {
@@ -306,7 +306,7 @@ internal inline fun <T> uniffiTraitInterfaceCall(
 ) {
     try {
         writeReturn(makeCall())
-    } catch (e: Exception) {
+    } catch (e: kotlin.Exception) {
         callStatus.code = UNIFFI_CALL_UNEXPECTED_ERROR
         callStatus.error_buf = FfiConverterString.lower(e.toString())
     }
@@ -320,7 +320,7 @@ internal inline fun <T, reified E : Throwable> uniffiTraitInterfaceCallWithError
 ) {
     try {
         writeReturn(makeCall())
-    } catch (e: Exception) {
+    } catch (e: kotlin.Exception) {
         if (e is E) {
             callStatus.code = UNIFFI_CALL_ERROR
             callStatus.error_buf = lowerError(e)
@@ -935,6 +935,14 @@ internal interface UniffiLib : Library {
         `cipherSuite`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_mls_rs_uniffi_fn_func_message_from_bytes(
+        `data`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
+    ): Pointer
+
+    fun uniffi_mls_rs_uniffi_fn_func_message_to_bytes(
+        `msg`: Pointer, uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun ffi_mls_rs_uniffi_rustbuffer_alloc(
         `size`: Long, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
@@ -1165,6 +1173,12 @@ internal interface UniffiLib : Library {
     fun uniffi_mls_rs_uniffi_checksum_func_generate_signature_keypair(
     ): Short
 
+    fun uniffi_mls_rs_uniffi_checksum_func_message_from_bytes(
+    ): Short
+
+    fun uniffi_mls_rs_uniffi_checksum_func_message_to_bytes(
+    ): Short
+
     fun uniffi_mls_rs_uniffi_checksum_method_client_create_group(
     ): Short
 
@@ -1243,6 +1257,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_mls_rs_uniffi_checksum_func_generate_signature_keypair() != 7255.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_mls_rs_uniffi_checksum_func_message_from_bytes() != 61570.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_mls_rs_uniffi_checksum_func_message_to_bytes() != 5446.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_mls_rs_uniffi_checksum_method_client_create_group() != 51396.toShort()) {
@@ -4449,8 +4469,6 @@ public object FfiConverterTypeError : FfiConverterRustBuffer<Exception> {
                 buf.putInt(4)
                 Unit
             }
-
-            else -> Unit
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
@@ -4927,6 +4945,30 @@ fun `generateSignatureKeypair`(`cipherSuite`: CipherSuite): SignatureKeypair {
         uniffiRustCallWithError(Exception) { _status ->
             UniffiLib.INSTANCE.uniffi_mls_rs_uniffi_fn_func_generate_signature_keypair(
                 FfiConverterTypeCipherSuite.lower(`cipherSuite`), _status
+            )
+        }
+    )
+}
+
+
+@Throws(Exception::class)
+fun `messageFromBytes`(`data`: kotlin.ByteArray): Message {
+    return FfiConverterTypeMessage.lift(
+        uniffiRustCallWithError(Exception) { _status ->
+            UniffiLib.INSTANCE.uniffi_mls_rs_uniffi_fn_func_message_from_bytes(
+                FfiConverterByteArray.lower(`data`), _status
+            )
+        }
+    )
+}
+
+
+@Throws(Exception::class)
+fun `messageToBytes`(`msg`: Message): kotlin.ByteArray {
+    return FfiConverterByteArray.lift(
+        uniffiRustCallWithError(Exception) { _status ->
+            UniffiLib.INSTANCE.uniffi_mls_rs_uniffi_fn_func_message_to_bytes(
+                FfiConverterTypeMessage.lower(`msg`), _status
             )
         }
     )

@@ -225,7 +225,7 @@ fun main() {
                             chatId = chatId,
                             data = mapOf(
                                 "requestId" to requestId,
-                                "ratchetTree" to acceptRequest.ratchetTree,
+//                                "ratchetTree" to acceptRequest.ratchetTree,
                                 "welcomeMessage" to acceptRequest.welcomeMessage
                             )
                         )
