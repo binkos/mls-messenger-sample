@@ -430,17 +430,14 @@ class HttpClientService {
                 EventType.JOIN_APPROVED -> {
                     val chatId = event.chatId ?: return@forEach
                     val requestId = event.data["requestId"] ?: return@forEach
-//                    val ratchetTree = event.data["ratchetTree"] ?: return@forEach
                     val welcomeMessage = event.data["welcomeMessage"] ?: return@forEach
 
-                    // Remove the join request
                     removeJoinRequestById(chatId, requestId)
 
                     // Process the welcome message to join the group
                     try {
                         // MARK: MLS CODE HERE
                         val welcomeMessageBytes = Base64.getDecoder().decode(welcomeMessage)
-//                        val ratchetTreeBytes = Base64.getDecoder().decode(ratchetTree)
 
                         // Join the group using welcome message
                         _currentDesktopUserId.value?.let { desktopUser ->
