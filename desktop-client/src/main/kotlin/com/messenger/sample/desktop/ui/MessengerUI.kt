@@ -47,16 +47,15 @@ fun MessengerUI(
     val clientService = remember { HttpClientService() }
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedChatId by remember { mutableStateOf<String?>(null) }
+    val selectedChatId by clientService.selectedChatIdFlow.collectAsState()
     var showJoinRequestDialog by remember { mutableStateOf(false) }
     var currentJoinRequest by remember { mutableStateOf<JoinRequest?>(null) }
     var showUserIdDialog by remember { mutableStateOf(true) }
     val currentUserId by clientService.currentDesktopUserId.map { it?.userId ?: "" }.collectAsState("")
 
-
-    // Collect data from ClientService
     val chats by clientService.chats.collectAsState()
-    val chatMessages by clientService.messages.map { it[selectedChatId] ?: emptyList() }.collectAsState(emptyList())
+    val selectedChatMessages by clientService.messagesFlow.collectAsState(emptyList())
+
     val joinRequests by clientService.joinRequests.collectAsState()
 
     // User ID input dialog
@@ -140,14 +139,14 @@ fun MessengerUI(
                         chats = chats,
                         selectedChatId = selectedChatId,
                         onChatSelected = { chatId ->
-                            selectedChatId = chatId
+                            clientService.selectedChatIdFlow.value = chatId
                         },
                         onCreateNewChat = {
                             coroutineScope.launch {
                                 try {
                                     val newChat =
                                         clientService.createChat("New Chat ${System.currentTimeMillis() % 1000}")
-                                    selectedChatId = newChat.id
+                                    clientService.selectedChatIdFlow.value = newChat.id
                                 } catch (e: Exception) {
                                     println("Error creating chat: ${e.message}")
                                 }
@@ -229,14 +228,17 @@ fun MessengerUI(
                                 Card(
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    if (chatMessages.isNotEmpty()) {
+                                    if (selectedChatMessages.isNotEmpty()) {
                                         LazyColumn(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .padding(16.dp),
                                             verticalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
-                                            items(chatMessages) { message ->
+                                            items(
+                                                items = selectedChatMessages,
+                                                key = { it.id }
+                                            ) { message ->
                                                 MessageDisplay(
                                                     message = message,
                                                     modifier = Modifier.fillMaxWidth()

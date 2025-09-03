@@ -27,8 +27,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -41,16 +39,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
-import uniffi.mls_rs_uniffi.FfiConverterTypeMessage
 import uniffi.mls_rs_uniffi.Group
-import uniffi.mls_rs_uniffi.Message
 import uniffi.mls_rs_uniffi.ReceivedMessage
 import uniffi.mls_rs_uniffi.messageFromBytes
 import uniffi.mls_rs_uniffi.messageToBytes
@@ -76,11 +72,15 @@ class HttpClientService {
     private val _chats = MutableStateFlow<List<ChatGroupWithUserStatus>>(emptyList())
     val chats: StateFlow<List<ChatGroupWithUserStatus>> = _chats.asStateFlow()
 
-    val messageMutex = Mutex()
+    private val messageMutex = Mutex()
     private val _messages = HashMap<String, List<ChatMessage>>()
     private val messagesTriggerFlow = MutableStateFlow(0)
-    val messages: Flow<Map<String, List<ChatMessage>>> = messagesTriggerFlow.map { _messages }
+    val selectedChatIdFlow: MutableStateFlow<String?> = MutableStateFlow(null)
 
+    val messagesFlow: Flow<List<ChatMessage>> = combine(
+        messagesTriggerFlow,
+        selectedChatIdFlow
+    ) { _, selectedChatId -> _messages[selectedChatId] ?: emptyList() }
     private val _joinRequests = MutableStateFlow<Map<String, List<JoinRequest>>>(emptyMap())
     val joinRequests: StateFlow<Map<String, List<JoinRequest>>> = _joinRequests.asStateFlow()
 
@@ -176,13 +176,12 @@ class HttpClientService {
             if (response.status.isSuccess()) {
                 val createdMessage = response.body<ChatMessage>()
                 messageMutex.withLock {
-                    // Add the message to local state
                     val currentMessages = _messages[chatId] ?: emptyList()
                     val updatedMessages =
                         currentMessages + createdMessage.copy(message = messageText, isOwnMessage = true)
                     _messages[chatId] = updatedMessages
+                    messagesTriggerFlow.value = messagesTriggerFlow.value + 1
                 }
-                messagesTriggerFlow.value = messagesTriggerFlow.value + 1
                 println("✅ Message sent to chat $chatId: ${createdMessage.message}")
             } else {
                 println("❌ Failed to send message: ${response.status}")
@@ -224,14 +223,6 @@ class HttpClientService {
             throw e
         }
     }
-
-    /**
-     * Get messages for a specific chat.
-     */
-    fun getMessagesForChat(chatId: String): List<ChatMessage> {
-        return _messages[chatId] ?: emptyList()
-    }
-
 
     /**
      * Decline a join request.
@@ -527,28 +518,5 @@ class HttpClientService {
         coroutineScope.cancel()
         httpClient.close()
         _currentDesktopUserId.value?.client?.destroy()
-    }
-
-    // MARK: MLS CODE HERE
-    private fun serializeMessage(message: Message): ByteArray {
-        val bufferSize = FfiConverterTypeMessage.allocationSize(message)
-        val buffer = ByteBuffer.allocateDirect(bufferSize.toInt())
-        buffer.order(ByteOrder.LITTLE_ENDIAN)
-
-        FfiConverterTypeMessage.write(message, buffer)
-
-        val position = buffer.position()
-        val bytes = ByteArray(position)
-        buffer.rewind()
-        buffer.get(bytes)
-
-        return bytes
-    }
-
-    private fun deserializeMessage(bytes: ByteArray): Message {
-        val buffer = ByteBuffer.wrap(bytes)
-        buffer.order(ByteOrder.LITTLE_ENDIAN)
-
-        return FfiConverterTypeMessage.read(buffer)
     }
 }
