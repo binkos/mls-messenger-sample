@@ -31,3 +31,16 @@ dependencies {
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.junit.jupiter)
 }
+
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "com.messenger.sample.MessengerServerKt"
+    }
+    // Bundle all dependencies
+    from(sourceSets.main.get().output)
+    dependsOn(configurations.runtimeClasspath)
+    from({
+        configurations.runtimeClasspath.get().filter { it.name.endsWith("jar") }.map { zipTree(it) }
+    })
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}

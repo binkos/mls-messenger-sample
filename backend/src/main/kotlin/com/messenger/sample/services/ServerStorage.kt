@@ -9,6 +9,7 @@ import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.UserChatStatus
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -22,11 +23,9 @@ object ServerStorage {
     private val chats = ConcurrentHashMap<String, ChatGroup>()
     private val messages = ConcurrentHashMap<String, MutableList<ChatMessage>>()
     private val joinRequests = ConcurrentHashMap<String, MutableList<JoinRequest>>()
-    private val userChatStatuses =
-        ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
+    private val userChatStatuses = ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
     private val events = ConcurrentHashMap<String, MutableList<Event>>() // userId -> List<Event>
-    private var nextEventId = 1L
-    private val connectedUsers = ConcurrentHashMap<String, Boolean>() // userId -> isConnected
+    private var nextEventId = AtomicLong(0)
 
     suspend fun getAllChats(): List<ChatGroup> {
         return chats.values.toList()
@@ -108,7 +107,7 @@ object ServerStorage {
         if (creatorUserId != null) {
             setUserChatStatus(creatorUserId, chatId, ChatMembershipStatus.MEMBER)
 
-            // Create event for group creation (creator receives as CREATOR)
+            // Create event for group creation (creator receives as MEMBER)
             createEvent(
                 userId = creatorUserId,
                 type = EventType.GROUP_CREATED,
@@ -230,7 +229,7 @@ object ServerStorage {
         chatId: String? = null,
         data: Map<String, String> = emptyMap(),
     ): Event {
-        val eventId = "evt_${nextEventId++}"
+        val eventId = "evt_${nextEventId.incrementAndGet()}"
         val event = Event(
             id = eventId,
             type = type,
@@ -258,5 +257,9 @@ object ServerStorage {
                 ),
             )
         }
+    }
+
+    suspend fun addUser(userId: String){
+        userChatStatuses[userId] = mutableListOf()
     }
 }

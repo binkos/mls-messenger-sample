@@ -23,7 +23,6 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 
 
@@ -76,17 +75,15 @@ fun main() {
                 val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 try {
                     val request = call.receive<SendMessageRequest>()
-                    runBlocking {
-                        val message = ChatMessage(
-                            id = "msg_${System.currentTimeMillis()}",
-                            userName = request.userName,
-                            message = request.message,
-                            timestamp = System.currentTimeMillis(),
-                            isOwnMessage = false
-                        )
-                        ServerStorage.addMessage(chatId, message)
-                        call.respond(HttpStatusCode.Created, message)
-                    }
+                    val message = ChatMessage(
+                        id = "msg_${System.currentTimeMillis()}",
+                        userName = request.userName,
+                        message = request.message,
+                        timestamp = System.currentTimeMillis(),
+                        isOwnMessage = false
+                    )
+                    ServerStorage.addMessage(chatId, message)
+                    call.respond(HttpStatusCode.Created, message)
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
                 }
@@ -104,17 +101,15 @@ fun main() {
                 val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 try {
                     val request = call.receive<CreateJoinRequestRequest>()
-                    runBlocking {
-                        val joinRequest = JoinRequest(
-                            id = "req_${System.currentTimeMillis()}",
-                            userName = request.userName,
-                            keyPackage = request.keyPackage,
-                            groupId = request.groupId,
-                            timestamp = System.currentTimeMillis()
-                        )
-                        ServerStorage.addJoinRequest(joinRequest)
-                        call.respond(HttpStatusCode.Created, joinRequest)
-                    }
+                    val joinRequest = JoinRequest(
+                        id = "req_${System.currentTimeMillis()}",
+                        userName = request.userName,
+                        keyPackage = request.keyPackage,
+                        groupId = request.groupId,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    ServerStorage.addJoinRequest(joinRequest)
+                    call.respond(HttpStatusCode.Created, joinRequest)
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
                 }
@@ -146,10 +141,9 @@ fun main() {
             // Send existing groups to a user (when they connect)
             post("/api/users/{userId}/connect") {
                 val userId = call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    ServerStorage.sendExistingGroupsToUser(userId)
-                    call.respond(HttpStatusCode.OK, "Existing groups sent to user")
-                }
+                ServerStorage.addUser(userId)
+                ServerStorage.sendExistingGroupsToUser(userId)
+                call.respond(HttpStatusCode.OK, "Existing groups sent to user")
             }
 
             // Request to join a chat
@@ -242,34 +236,32 @@ fun main() {
             // Decline join request (admin function)
             post("/api/join-requests/{requestId}/decline") {
                 val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                runBlocking {
-                    // Find the join request first
-                    val allChats = ServerStorage.getAllChats()
-                    var foundRequest: JoinRequest? = null
-                    var foundChatId: String? = null
+                // Find the join request first
+                val allChats = ServerStorage.getAllChats()
+                var foundRequest: JoinRequest? = null
+                var foundChatId: String? = null
 
-                    for (chat in allChats) {
-                        val requests = ServerStorage.getJoinRequests(chat.id)
-                        val request = requests.find { it.id == requestId }
-                        if (request != null) {
-                            foundRequest = request
-                            foundChatId = chat.id
-                            break
-                        }
+                for (chat in allChats) {
+                    val requests = ServerStorage.getJoinRequests(chat.id)
+                    val request = requests.find { it.id == requestId }
+                    if (request != null) {
+                        foundRequest = request
+                        foundChatId = chat.id
+                        break
                     }
+                }
 
-                    if (foundRequest != null && foundChatId != null) {
-                        val chatId = foundChatId!! // Non-null assertion
-                        val request = foundRequest!! // Non-null assertion
-                        ServerStorage.removeJoinRequest(chatId, requestId)
+                if (foundRequest != null && foundChatId != null) {
+                    val chatId = foundChatId!! // Non-null assertion
+                    val request = foundRequest!! // Non-null assertion
+                    ServerStorage.removeJoinRequest(chatId, requestId)
 
-                        // Update user status back to NOT_MEMBER
-                        ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.NOT_MEMBER)
+                    // Update user status back to NOT_MEMBER
+                    ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.NOT_MEMBER)
 
-                        call.respond(HttpStatusCode.OK, "Join request declined")
-                    } else {
-                        call.respond(HttpStatusCode.NotFound, "Join request not found")
-                    }
+                    call.respond(HttpStatusCode.OK, "Join request declined")
+                } else {
+                    call.respond(HttpStatusCode.NotFound, "Join request not found")
                 }
             }
         }

@@ -162,11 +162,10 @@ class HttpClientService {
             // MARK: MLS CODE HERE
             val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
             val group = groups[chatId] ?: throw Exception("Group not found for chat $chatId")
-            println("SEND MESSAGE ${messageText.toByteArray().toString()}")
             val message = group.encryptApplicationMessage(messageText.toByteArray()).use { messageToBytes(it) }
             val request = SendMessageRequest(
                 userName = userId,
-                message = Base64.getEncoder().encodeToString(message)
+                message = Base64.getEncoder().encodeToString(message).also { println("SEND Message - $it") }
             )
 
             val response = httpClient.post("$serverBaseUrl/api/chats/$chatId/messages") {
