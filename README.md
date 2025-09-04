@@ -130,7 +130,7 @@ The application uses an event-driven architecture where:
 
 1. Start the backend server
 2. Launch desktop client instances
-3. Enter a user ID for each client
+3. Enter a user name for each client (the server will generate a unique user ID)
 
 ### 2. Creating Groups
 

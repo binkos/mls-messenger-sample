@@ -2,10 +2,13 @@ package com.messenger.sample
 
 import com.messenger.sample.services.ServerStorage
 import com.messenger.sample.shared.models.AcceptJoinRequestRequest
+import com.messenger.sample.shared.models.ChatGroup
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
+import com.messenger.sample.shared.models.CreateUserRequest
+import com.messenger.sample.shared.models.CreateUserResponse
 import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.SendMessageRequest
@@ -16,6 +19,7 @@ import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -28,7 +32,7 @@ import kotlinx.serialization.json.Json
 
 fun main() {
     embeddedServer(Netty, port = 8080) {
-        install(io.ktor.server.plugins.contentnegotiation.ContentNegotiation) {
+        install(ContentNegotiation) {
             json(Json {
                 prettyPrint = true
                 isLenient = true
@@ -39,6 +43,17 @@ fun main() {
             // Health check
             get("/health") {
                 call.respondText("OK", ContentType.Text.Plain)
+            }
+
+            // Create new user
+            post("/api/users") {
+                try {
+                    val request = call.receive<CreateUserRequest>()
+                    val newUser = ServerStorage.createUser(request.userName)
+                    call.respond(HttpStatusCode.Created, newUser)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
+                }
             }
 
             // Get all chats
@@ -97,8 +112,7 @@ fun main() {
             }
 
             // Create join request
-            post("/api/chats/{chatId}/join-requests") {
-                val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            post("/api/chats/join-requests") {
                 try {
                     val request = call.receive<CreateJoinRequestRequest>()
                     val joinRequest = JoinRequest(
@@ -174,6 +188,7 @@ fun main() {
             // Accept join request (admin function)
             post("/api/join-requests/{requestId}/accept") {
                 val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                val adminUserId = call.request.header("X-User-ID") // Get admin user ID from header
                 try {
                     val acceptRequest = call.receive<AcceptJoinRequestRequest>()
                     // Find the join request first
@@ -219,9 +234,20 @@ fun main() {
                             chatId = chatId,
                             data = mapOf(
                                 "requestId" to requestId,
-//                                "ratchetTree" to acceptRequest.ratchetTree,
                                 "welcomeMessage" to acceptRequest.welcomeMessage
                             )
+                        )
+
+                        ServerStorage.notifyGroupMembersOfJoinRequestStatus(
+                            chatId = chatId,
+                            excludedUserIds = setOf(
+                                request.userId,
+                                acceptRequest.approverId
+                            ),
+                            data = mapOf(
+                                "requestId" to requestId,
+                                "commitMessage" to acceptRequest.commitMessage
+                            ),
                         )
 
                         call.respond(HttpStatusCode.OK, "Join request accepted")
@@ -258,6 +284,13 @@ fun main() {
 
                     // Update user status back to NOT_MEMBER
                     ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.NOT_MEMBER)
+
+                    // Send JOIN_REQUEST_STATUS_UPDATE event to all group members except the admin who made the action
+                    ServerStorage.notifyGroupMembersOfJoinRequestStatus(
+                        chatId = chatId,
+                        excludedUserIds = setOf(request.userId),
+                        data = mapOf("requestId" to requestId),
+                    )
 
                     call.respond(HttpStatusCode.OK, "Join request declined")
                 } else {

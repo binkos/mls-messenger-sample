@@ -20,6 +20,7 @@ data class ChatGroup(
 @Serializable
 data class JoinRequest(
     val id: String,
+    val userId: String,
     val userName: String,
     val keyPackage: String,
     val groupId: String,
@@ -40,8 +41,21 @@ data class CreateJoinRequestRequest(
 )
 
 @Serializable
+data class CreateUserRequest(
+    val userName: String
+)
+
+@Serializable
+data class CreateUserResponse(
+    val userId: String,
+    val userName: String
+)
+
+@Serializable
 data class AcceptJoinRequestRequest(
-    val welcomeMessage: String  // Base64 encoded welcome message
+    val approverId: String,
+    val welcomeMessage: String,  // Base64 encoded welcome message
+    val commitMessage: String// Base64 encoded commit message
 )
 
 @Serializable
@@ -82,6 +96,7 @@ enum class EventType {
     JOIN_REQUESTED,     // Someone requested to join a group
     JOIN_APPROVED,      // Join request was approved
     JOIN_DECLINED,      // Join request was declined
+    JOIN_REQUEST_STATUS_UPDATE, // Join request status was updated (accepted/declined)
     USER_JOINED,        // User joined a group
     USER_LEFT,          // User left a group
     MESSAGE_SENT,       // Message sent

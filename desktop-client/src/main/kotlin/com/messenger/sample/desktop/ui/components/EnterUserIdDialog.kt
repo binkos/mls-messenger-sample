@@ -19,14 +19,14 @@ import androidx.compose.ui.unit.dp
 fun EnterUserIdDialog(
     onConfirmed: (String) -> Unit
 ) {
-    var currentUserId by remember { mutableStateOf("") }
+    var currentUserName by remember { mutableStateOf("") }
 
     EnterUserIdDialogUI(
-        currentUserId = currentUserId,
-        { currentUserId = it },
+        currentUserName = currentUserName,
+        { currentUserName = it },
         onConfirmClicked = {
-            if (currentUserId.isNotEmpty()) {
-                onConfirmed(currentUserId)
+            if (currentUserName.isNotEmpty()) {
+                onConfirmed(currentUserName)
             }
         }
     )
@@ -34,21 +34,21 @@ fun EnterUserIdDialog(
 
 @Composable
 fun EnterUserIdDialogUI(
-    currentUserId: String,
+    currentUserName: String,
     onValueChange: (String) -> Unit,
     onConfirmClicked: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = { },
-        title = { Text("Enter User ID") },
+        title = { Text("Enter User Name") },
         text = {
             Column {
-                Text("Please enter a unique user ID to initialize your client:")
+                Text("Please enter your name to create a new user account:")
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = currentUserId,
+                    value = currentUserName,
                     onValueChange = onValueChange,
-                    label = { Text("User ID") },
+                    label = { Text("User Name") },
                     singleLine = true
                 )
             }
@@ -56,9 +56,9 @@ fun EnterUserIdDialogUI(
         confirmButton = {
             Button(
                 onClick = onConfirmClicked,
-                enabled = currentUserId.isNotEmpty()
+                enabled = currentUserName.isNotEmpty()
             ) {
-                Text("Initialize Client")
+                Text("Create User")
             }
         }
     )

@@ -9,6 +9,8 @@ import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
+import com.messenger.sample.shared.models.CreateUserRequest
+import com.messenger.sample.shared.models.CreateUserResponse
 import com.messenger.sample.shared.models.Event
 import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
@@ -27,8 +29,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
-import java.util.Base64
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,6 +51,8 @@ import uniffi.mls_rs_uniffi.ReceivedMessage
 import uniffi.mls_rs_uniffi.messageFromBytes
 import uniffi.mls_rs_uniffi.messageToBytes
 import uniffi.mls_rs_uniffi.use
+import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * HTTP client service that communicates with the backend API.
@@ -99,11 +101,33 @@ class HttpClientService {
     private val serverBaseUrl = "http://localhost:8080"
 
     /**
-     * Initialize the client service with a user ID.
+     * Initialize the client service with a user name.
      */
-    fun initialize(userId: String) {
-        _currentDesktopUserId.value = DesktopUser(userId = userId, client = createClient(userId))
-        startPolling(userId = userId)
+    suspend fun initialize(userName: String) {
+        try {
+            val request = CreateUserRequest(userName = userName)
+            val response = httpClient.post("$serverBaseUrl/api/users") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+
+            if (response.status.isSuccess()) {
+                val userResponse = response.body<CreateUserResponse>()
+                _currentDesktopUserId.value = DesktopUser(
+                    userId = userResponse.userId,
+                    userName = userResponse.userName,
+                    client = createClient(userResponse.userId)
+                )
+                startPolling(userId = userResponse.userId)
+                println("✅ Created user: ${userResponse.userName} with ID: ${userResponse.userId}")
+            } else {
+                println("❌ Failed to create user: ${response.status}")
+                throw Exception("Failed to create user: ${response.status}")
+            }
+        } catch (e: Exception) {
+            println("❌ Failed to create user: ${e.message}")
+            throw e
+        }
     }
 
     /**
@@ -162,10 +186,12 @@ class HttpClientService {
             // MARK: MLS CODE HERE
             val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
             val group = groups[chatId] ?: throw Exception("Group not found for chat $chatId")
-            val message = group.encryptApplicationMessage(messageText.toByteArray()).use { messageToBytes(it) }
+            val message = group.encryptApplicationMessage(messageText.toByteArray())
+                .use { messageToBytes(it) }
             val request = SendMessageRequest(
                 userName = userId,
-                message = Base64.getEncoder().encodeToString(message).also { println("SEND Message - $it") }
+                message = Base64.getEncoder().encodeToString(message)
+                    .also { println("SEND Message - $it") }
             )
 
             val response = httpClient.post("$serverBaseUrl/api/chats/$chatId/messages") {
@@ -178,7 +204,10 @@ class HttpClientService {
                 messageMutex.withLock {
                     val currentMessages = _messages[chatId] ?: emptyList()
                     val updatedMessages =
-                        currentMessages + createdMessage.copy(message = messageText, isOwnMessage = true)
+                        currentMessages + createdMessage.copy(
+                            message = messageText,
+                            isOwnMessage = true
+                        )
                     _messages[chatId] = updatedMessages
                     messagesTriggerFlow.value = messagesTriggerFlow.value + 1
                 }
@@ -229,14 +258,19 @@ class HttpClientService {
      */
     suspend fun declineJoinRequest(joinRequest: JoinRequest) {
         try {
-            val response = httpClient.post("$serverBaseUrl/api/join-requests/${joinRequest.id}/decline")
+            val response =
+                httpClient.post("$serverBaseUrl/api/join-requests/${joinRequest.id}/decline") {
+                    // Add admin user ID header
+                    header("X-User-ID", _currentDesktopUserId.value?.userId ?: "")
+                }
             if (response.status.isSuccess()) {
                 println("❌ Declined join request from ${joinRequest.userName}")
 
                 // Update local state
                 val currentRequests = _joinRequests.value.toMutableMap()
                 currentRequests[joinRequest.groupId] =
-                    currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id } ?: emptyList()
+                    currentRequests[joinRequest.groupId]?.filter { it.id != joinRequest.id }
+                        ?: emptyList()
                 _joinRequests.value = currentRequests
             } else {
                 println("❌ Failed to decline join request: ${response.status}")
@@ -254,7 +288,8 @@ class HttpClientService {
     suspend fun requestToJoinChat(chatId: String): Boolean {
         return try {
             val userId = _currentDesktopUserId.value?.userId ?: return false
-            val keyPackage = _currentDesktopUserId.value?.client?.generateKeyPackageMessage() ?: return false
+            val keyPackage =
+                _currentDesktopUserId.value?.client?.generateKeyPackageMessage() ?: return false
             val bytes = messageToBytes(keyPackage)
 
             val request = CreateJoinRequestRequest(
@@ -263,7 +298,9 @@ class HttpClientService {
                 groupId = chatId
             )
 
-            val response = httpClient.post("$serverBaseUrl/api/users/$userId/chats/$chatId/join-request") {
+            keyPackage.destroy()
+
+            val response = httpClient.post("$serverBaseUrl/api/chats/join-request") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
@@ -289,24 +326,31 @@ class HttpClientService {
             // MARK: MLS CODE HERE
             val keyPackageByteArray = Base64.getDecoder().decode(request.keyPackage)
             val keyPackage = messageFromBytes(keyPackageByteArray)
-
             val group = groups[request.groupId] ?: return
-
             val commitOutput = group.addMembers(listOf(keyPackage))
             group.processIncomingMessage(commitOutput.commitMessage)
             group.writeToStorage()
 
             val welcomeMessageBytes = messageToBytes(commitOutput.welcomeMessage ?: return)
+            val commitMessageBytes = messageToBytes(commitOutput.commitMessage)
 
             val acceptRequest = AcceptJoinRequestRequest(
-                welcomeMessage = Base64.getEncoder().encodeToString(welcomeMessageBytes)
+                approverId = _currentDesktopUserId.value?.userId ?: "",
+                welcomeMessage = Base64.getEncoder().encodeToString(welcomeMessageBytes),
+                commitMessage = Base64.getEncoder().encodeToString(commitMessageBytes)
             )
 
+            commitOutput.destroy()
+            keyPackage.destroy()
+
             println(acceptRequest)
-            val response = httpClient.post("$serverBaseUrl/api/join-requests/${request.id}/accept") {
-                contentType(ContentType.Application.Json)
-                setBody(acceptRequest)
-            }
+            val response =
+                httpClient.post("$serverBaseUrl/api/join-requests/${request.id}/accept") {
+                    contentType(ContentType.Application.Json)
+                    setBody(acceptRequest)
+                    // Add admin user ID header
+                    header("X-User-ID", _currentDesktopUserId.value?.userId ?: "")
+                }
 
             if (response.status.isSuccess()) {
                 removeJoinRequestById(request.groupId, request.id)
@@ -340,7 +384,8 @@ class HttpClientService {
                 EventType.GROUP_CREATED -> {
                     val chatId = event.chatId ?: return@forEach
                     val chatName = event.data["name"] ?: return@forEach
-                    val membershipStatus = ChatMembershipStatus.entries[event.data["type"]?.toInt() ?: 0]
+                    val membershipStatus =
+                        ChatMembershipStatus.entries[event.data["type"]?.toInt() ?: 0]
 
                     val newChat = ChatGroupWithUserStatus(
                         id = chatId,
@@ -382,8 +427,9 @@ class HttpClientService {
 
                             if (!groups.contains(event.chatId)) {
                                 _currentDesktopUserId.value?.let { desktopUser ->
-                                    groups[chatId] = desktopUser.client.createGroup(chatId.toByteArray())
-                                        .also { it.writeToStorage() }
+                                    groups[chatId] =
+                                        desktopUser.client.createGroup(chatId.toByteArray())
+                                            .also { it.writeToStorage() }
                                 }
                             }
                         }
@@ -463,6 +509,22 @@ class HttpClientService {
                     println("❌ Join request declined for $declinedUserName")
                 }
 
+                EventType.JOIN_REQUEST_STATUS_UPDATE -> {
+                    val chatId = event.chatId ?: return@forEach
+                    val requestId = event.data["requestId"] ?: return@forEach
+                    val requesterName = event.data["requesterName"] ?: return@forEach
+                    val isAccepted = event.data["isAccepted"]?.toBoolean() ?: return@forEach
+
+                    // Remove the join request from local state
+                    removeJoinRequestById(chatId, requestId)
+
+                    if (isAccepted) {
+                        println("✅ Join request from $requesterName was accepted by another member")
+                    } else {
+                        println("❌ Join request from $requesterName was declined by another member")
+                    }
+                }
+
                 EventType.USER_JOINED -> {
                     println("✅ User joined: ${event.data["userName"]}")
                 }
@@ -498,7 +560,8 @@ class HttpClientService {
                         )
 
                         messageMutex.withLock {
-                            val currentMessages = _messages[chatId]?.toMutableList() ?: mutableListOf<ChatMessage>()
+                            val currentMessages =
+                                _messages[chatId]?.toMutableList() ?: mutableListOf<ChatMessage>()
                             currentMessages += chatMessage
                             _messages[chatId] = currentMessages
                             messagesTriggerFlow.value += 1

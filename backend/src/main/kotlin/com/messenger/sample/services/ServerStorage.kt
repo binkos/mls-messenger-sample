@@ -4,14 +4,15 @@ import com.messenger.sample.shared.models.ChatGroup
 import com.messenger.sample.shared.models.ChatGroupWithUserStatus
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
+import com.messenger.sample.shared.models.CreateUserResponse
 import com.messenger.sample.shared.models.Event
 import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.UserChatStatus
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 
 /**
@@ -23,9 +24,22 @@ object ServerStorage {
     private val chats = ConcurrentHashMap<String, ChatGroup>()
     private val messages = ConcurrentHashMap<String, MutableList<ChatMessage>>()
     private val joinRequests = ConcurrentHashMap<String, MutableList<JoinRequest>>()
-    private val userChatStatuses = ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
+    private val userChatStatuses =
+        ConcurrentHashMap<String, MutableList<UserChatStatus>>() // userId -> List<UserChatStatus>
     private val events = ConcurrentHashMap<String, MutableList<Event>>() // userId -> List<Event>
+    private val users = ConcurrentHashMap<String, String>() // userId -> userName
     private var nextEventId = AtomicLong(0)
+
+    suspend fun createUser(userName: String): CreateUserResponse = mutex.withLock {
+        val userId = "user_${System.currentTimeMillis()}_${(Math.random() * 1000).toInt()}"
+        users[userId] = userName
+        println("✅ Created user: $userId with name: $userName")
+        CreateUserResponse(userId = userId, userName = userName)
+    }
+
+    suspend fun getUserName(userId: String): String? {
+        return users[userId]
+    }
 
     suspend fun getAllChats(): List<ChatGroup> {
         return chats.values.toList()
@@ -84,7 +98,6 @@ object ServerStorage {
                     "requestId" to joinRequest.id,
                     "keyPackage" to joinRequest.keyPackage
                 ),
-//                userType = UserEventType.EXISTING_USER
             )
         }
     }
@@ -93,48 +106,49 @@ object ServerStorage {
         joinRequests[chatId]?.removeAll { it.id == requestId }
     }
 
-    suspend fun createChat(name: String, creatorUserId: String? = null): ChatGroup = mutex.withLock {
-        val chatId = "chat_${System.currentTimeMillis()}"
-        val newChat = ChatGroup(
-            id = chatId,
-            name = name,
-        )
-        chats[chatId] = newChat
-        messages[chatId] = mutableListOf()
-        joinRequests[chatId] = mutableListOf()
-
-        // Mark the creator as a member of the chat
-        if (creatorUserId != null) {
-            setUserChatStatus(creatorUserId, chatId, ChatMembershipStatus.MEMBER)
-
-            // Create event for group creation (creator receives as MEMBER)
-            createEvent(
-                userId = creatorUserId,
-                type = EventType.GROUP_CREATED,
-                chatId = chatId,
-                data = mapOf(
-                    "name" to name,
-                    "type" to ChatMembershipStatus.MEMBER.ordinal.toString()
-                ),
+    suspend fun createChat(name: String, creatorUserId: String? = null): ChatGroup =
+        mutex.withLock {
+            val chatId = "chat_${System.currentTimeMillis()}"
+            val newChat = ChatGroup(
+                id = chatId,
+                name = name,
             )
+            chats[chatId] = newChat
+            messages[chatId] = mutableListOf()
+            joinRequests[chatId] = mutableListOf()
 
-            // Send event to all existing users (they receive as EXISTING_USER)
-            val existingUsers = userChatStatuses.keys.filter { it != creatorUserId }
-            existingUsers.forEach { existingUserId ->
+            // Mark the creator as a member of the chat
+            if (creatorUserId != null) {
+                setUserChatStatus(creatorUserId, chatId, ChatMembershipStatus.MEMBER)
+
+                // Create event for group creation (creator receives as MEMBER)
                 createEvent(
-                    userId = existingUserId,
+                    userId = creatorUserId,
                     type = EventType.GROUP_CREATED,
                     chatId = chatId,
                     data = mapOf(
                         "name" to name,
-                        "type" to ChatMembershipStatus.NOT_MEMBER.ordinal.toString()
+                        "type" to ChatMembershipStatus.MEMBER.ordinal.toString()
                     ),
                 )
-            }
-        }
 
-        newChat
-    }
+                // Send event to all existing users (they receive as EXISTING_USER)
+                val existingUsers = userChatStatuses.keys.filter { it != creatorUserId }
+                existingUsers.forEach { existingUserId ->
+                    createEvent(
+                        userId = existingUserId,
+                        type = EventType.GROUP_CREATED,
+                        chatId = chatId,
+                        data = mapOf(
+                            "name" to name,
+                            "type" to ChatMembershipStatus.NOT_MEMBER.ordinal.toString()
+                        ),
+                    )
+                }
+            }
+
+            newChat
+        }
 
     /**
      * Get user status for a specific chat
@@ -186,7 +200,8 @@ object ServerStorage {
         val userStatuses = userChatStatuses[userId] ?: emptyList()
 
         return allChats.map { chat ->
-            val userStatus = userStatuses.find { it.chatId == chat.id }?.status ?: ChatMembershipStatus.NOT_MEMBER
+            val userStatus = userStatuses.find { it.chatId == chat.id }?.status
+                ?: ChatMembershipStatus.NOT_MEMBER
             ChatGroupWithUserStatus(
                 id = chat.id,
                 name = chat.name,
@@ -246,20 +261,47 @@ object ServerStorage {
      * Send existing groups to a new user (when they connect)
      */
     suspend fun sendExistingGroupsToUser(userId: String) {
-        val allChats = chats.values.toList()
+        val allChats = getAllChats()
         allChats.forEach { chat ->
             createEvent(
                 userId = userId,
                 type = EventType.GROUP_CREATED,
                 chatId = chat.id,
                 data = mapOf(
-                    "name" to chat.name
-                ),
+                    "name" to chat.name,
+                    "type" to ChatMembershipStatus.NOT_MEMBER.ordinal.toString()
+                )
             )
         }
     }
 
-    suspend fun addUser(userId: String){
+    /**
+     * Notify all group members (except excluded user) of join request status update
+     */
+    suspend fun notifyGroupMembersOfJoinRequestStatus(
+        chatId: String,
+        excludedUserIds: Set<String>,
+        data: Map<String, String>
+    ) {
+        userChatStatuses.entries
+            .mapNotNull { (userId, statuses) ->
+                if (userId !in excludedUserIds &&
+                    statuses.any { it.chatId == chatId && it.status == ChatMembershipStatus.MEMBER }
+                ) {
+                    userId
+                } else null
+            }
+            .forEach { memberId ->
+                createEvent(
+                    userId = memberId,
+                    type = EventType.JOIN_REQUEST_STATUS_UPDATE,
+                    chatId = chatId,
+                    data = data
+                )
+            }
+    }
+
+    suspend fun addUser(userId: String) {
         userChatStatuses[userId] = mutableListOf()
     }
 }

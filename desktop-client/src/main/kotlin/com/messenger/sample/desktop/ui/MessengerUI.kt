@@ -51,7 +51,7 @@ fun MessengerUI(
     var showJoinRequestDialog by remember { mutableStateOf(false) }
     var currentJoinRequest by remember { mutableStateOf<JoinRequest?>(null) }
     var showUserIdDialog by remember { mutableStateOf(true) }
-    val currentUserId by clientService.currentDesktopUserId.map { it?.userId ?: "" }.collectAsState("")
+    val currentUser by clientService.currentDesktopUserId.collectAsState()
 
     val chats by clientService.chats.collectAsState()
     val selectedChatMessages by clientService.messagesFlow.collectAsState(emptyList())
@@ -61,9 +61,15 @@ fun MessengerUI(
     // User ID input dialog
     if (showUserIdDialog) {
         EnterUserIdDialog(
-            onConfirmed = {
-                clientService.initialize(it)
-                showUserIdDialog = false
+            onConfirmed = { userName ->
+                coroutineScope.launch {
+                    try {
+                        clientService.initialize(userName)
+                        showUserIdDialog = false
+                    } catch (e: Exception) {
+                        println("Error creating user: ${e.message}")
+                    }
+                }
             }
         )
     }
@@ -116,9 +122,9 @@ fun MessengerUI(
                         text = "MLS Messenger",
                         style = MaterialTheme.typography.headlineMedium
                     )
-                    if (currentUserId.isNotEmpty()) {
+                    if (currentUser != null) {
                         Text(
-                            text = "User: $currentUserId",
+                            text = "User: ${currentUser?.userName}",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
