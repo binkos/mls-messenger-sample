@@ -76,8 +76,10 @@ fun MessengerUI(
 
     // Join request dialog
     if (showJoinRequestDialog && currentJoinRequest != null) {
+        val groupName = chats.find { it.id == currentJoinRequest!!.groupId }?.name
         JoinRequestDialog(
             joinRequest = currentJoinRequest!!,
+            groupName = groupName,
             onAccept = { request ->
                 coroutineScope.launch {
                     try {

@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ChatMessage(
     val id: String,
+    val userId: String,
     val userName: String,
     val message: String,
     val timestamp: Long,
@@ -31,11 +32,15 @@ data class JoinRequest(
 data class CreateChatRequest(val name: String)
 
 @Serializable
-data class SendMessageRequest(val userName: String, val message: String)
+data class SendMessageRequest(
+    val userId: String,
+    val userName: String,
+    val message: String
+)
 
 @Serializable
 data class CreateJoinRequestRequest(
-    val userName: String,
+    val userId: String,
     val keyPackage: String,
     val groupId: String
 )
@@ -54,6 +59,7 @@ data class CreateUserResponse(
 @Serializable
 data class AcceptJoinRequestRequest(
     val approverId: String,
+    val chatId: String,
     val welcomeMessage: String,  // Base64 encoded welcome message
     val commitMessage: String// Base64 encoded commit message
 )

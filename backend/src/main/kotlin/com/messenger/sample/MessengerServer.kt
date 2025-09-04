@@ -2,13 +2,11 @@ package com.messenger.sample
 
 import com.messenger.sample.services.ServerStorage
 import com.messenger.sample.shared.models.AcceptJoinRequestRequest
-import com.messenger.sample.shared.models.ChatGroup
 import com.messenger.sample.shared.models.ChatMembershipStatus
 import com.messenger.sample.shared.models.ChatMessage
 import com.messenger.sample.shared.models.CreateChatRequest
 import com.messenger.sample.shared.models.CreateJoinRequestRequest
 import com.messenger.sample.shared.models.CreateUserRequest
-import com.messenger.sample.shared.models.CreateUserResponse
 import com.messenger.sample.shared.models.EventType
 import com.messenger.sample.shared.models.JoinRequest
 import com.messenger.sample.shared.models.SendMessageRequest
@@ -64,7 +62,8 @@ fun main() {
 
             // Get specific chat
             get("/api/chats/{chatId}") {
-                val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val chatId =
+                    call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val chat = ServerStorage.getChat(chatId)
                 if (chat != null) {
                     call.respond(chat)
@@ -87,11 +86,13 @@ fun main() {
 
             // Send message to a chat
             post("/api/chats/{chatId}/messages") {
-                val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                val chatId =
+                    call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 try {
                     val request = call.receive<SendMessageRequest>()
                     val message = ChatMessage(
                         id = "msg_${System.currentTimeMillis()}",
+                        userId = request.userId,
                         userName = request.userName,
                         message = request.message,
                         timestamp = System.currentTimeMillis(),
@@ -106,23 +107,34 @@ fun main() {
 
             // Get join requests for a chat
             get("/api/chats/{chatId}/join-requests") {
-                val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val chatId =
+                    call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val requests = ServerStorage.getJoinRequests(chatId)
                 call.respond(requests)
             }
 
-            // Create join request
-            post("/api/chats/join-requests") {
+            // Request to join a chat
+            post("/api/chats/join-request") {
                 try {
                     val request = call.receive<CreateJoinRequestRequest>()
+                    // Create join request
                     val joinRequest = JoinRequest(
                         id = "req_${System.currentTimeMillis()}",
-                        userName = request.userName,
+                        userId = request.userId,
+                        userName = ServerStorage.getUserName(request.userId) ?: "",
                         keyPackage = request.keyPackage,
                         groupId = request.groupId,
                         timestamp = System.currentTimeMillis()
                     )
                     ServerStorage.addJoinRequest(joinRequest)
+
+                    // Update user status to PENDING
+                    ServerStorage.setUserChatStatus(
+                        request.userId,
+                        request.groupId,
+                        ChatMembershipStatus.PENDING
+                    )
+
                     call.respond(HttpStatusCode.Created, joinRequest)
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
@@ -131,22 +143,26 @@ fun main() {
 
             // Get chats with user status for a specific user
             get("/api/users/{userId}/chats") {
-                val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val userId =
+                    call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val chatsWithStatus = ServerStorage.getChatsWithUserStatus(userId)
                 call.respond(chatsWithStatus)
             }
 
             // Get user status for a specific chat
             get("/api/users/{userId}/chats/{chatId}/status") {
-                val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val chatId = call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val userId =
+                    call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val chatId =
+                    call.parameters["chatId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val status = ServerStorage.getUserChatStatus(userId, chatId)
                 call.respond(mapOf("status" to status))
             }
 
             // Get events for a user
             get("/api/users/{userId}/events") {
-                val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val userId =
+                    call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val sinceEventId = call.request.queryParameters["since"]
                 val events = ServerStorage.getUserEvents(userId, sinceEventId)
                 call.respond(events)
@@ -154,82 +170,60 @@ fun main() {
 
             // Send existing groups to a user (when they connect)
             post("/api/users/{userId}/connect") {
-                val userId = call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                val userId =
+                    call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 ServerStorage.addUser(userId)
                 ServerStorage.sendExistingGroupsToUser(userId)
                 call.respond(HttpStatusCode.OK, "Existing groups sent to user")
             }
 
-            // Request to join a chat
-            post("/api/users/{userId}/chats/{chatId}/join-request") {
-                val userId = call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                val chatId = call.parameters["chatId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                try {
-                    val request = call.receive<CreateJoinRequestRequest>()
-                    // Create join request
-                    val joinRequest = JoinRequest(
-                        id = "req_${System.currentTimeMillis()}",
-                        userName = request.userName,
-                        keyPackage = request.keyPackage,
-                        groupId = request.groupId,
-                        timestamp = System.currentTimeMillis()
-                    )
-                    ServerStorage.addJoinRequest(joinRequest)
-
-                    // Update user status to PENDING
-                    ServerStorage.setUserChatStatus(userId, chatId, ChatMembershipStatus.PENDING)
-
-                    call.respond(HttpStatusCode.Created, joinRequest)
-                } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, "Invalid request: ${e.message}")
-                }
-            }
-
             // Accept join request (admin function)
             post("/api/join-requests/{requestId}/accept") {
-                val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                val adminUserId = call.request.header("X-User-ID") // Get admin user ID from header
+                val requestId = call.parameters["requestId"] ?: return@post call.respond(
+                    HttpStatusCode.BadRequest
+                )
                 try {
                     val acceptRequest = call.receive<AcceptJoinRequestRequest>()
                     // Find the join request first
-                    val allChats = ServerStorage.getAllChats()
                     var foundRequest: JoinRequest? = null
                     var foundChatId: String? = null
 
-                    for (chat in allChats) {
-                        val requests = ServerStorage.getJoinRequests(chat.id)
-                        val request = requests.find { it.id == requestId }
-                        if (request != null) {
-                            foundRequest = request
-                            foundChatId = chat.id
-                            break
-                        }
+                    val requests = ServerStorage.getJoinRequests(acceptRequest.chatId)
+                    val request = requests.find { it.id == requestId }
+                    if (request != null) {
+                        foundRequest = request
+                        foundChatId = acceptRequest.chatId
                     }
 
                     if (foundRequest != null && foundChatId != null) {
                         val chatId = foundChatId // Non-null assertion
                         val request = foundRequest // Non-null assertion
+                        val chat = ServerStorage.getChat(chatId)
 
                         // Remove the join request
                         ServerStorage.removeJoinRequest(chatId, requestId)
 
                         // Update user status to MEMBER
-                        ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.MEMBER)
+                        ServerStorage.setUserChatStatus(
+                            userId = request.userId,
+                            chatId = chatId,
+                            status = ChatMembershipStatus.MEMBER
+                        )
 
                         // Send GROUP_CREATED event with MEMBER status to the approved user
                         ServerStorage.createEvent(
-                            userId = request.userName,
+                            userId = request.userId,
                             type = EventType.GROUP_CREATED,
                             chatId = chatId,
                             data = mapOf(
-                                "name" to (allChats.find { it.id == chatId }?.name ?: "Unknown Chat"),
+                                "name" to (chat?.name ?: "CHAT"),
                                 "type" to ChatMembershipStatus.MEMBER.ordinal.toString()
                             )
                         )
 
                         // Send JOIN_APPROVED event with ratchet tree and welcome message
                         ServerStorage.createEvent(
-                            userId = request.userName,
+                            userId = request.userId,
                             type = EventType.JOIN_APPROVED,
                             chatId = chatId,
                             data = mapOf(
@@ -261,7 +255,9 @@ fun main() {
 
             // Decline join request (admin function)
             post("/api/join-requests/{requestId}/decline") {
-                val requestId = call.parameters["requestId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                val requestId = call.parameters["requestId"] ?: return@post call.respond(
+                    HttpStatusCode.BadRequest
+                )
                 // Find the join request first
                 val allChats = ServerStorage.getAllChats()
                 var foundRequest: JoinRequest? = null
@@ -283,7 +279,11 @@ fun main() {
                     ServerStorage.removeJoinRequest(chatId, requestId)
 
                     // Update user status back to NOT_MEMBER
-                    ServerStorage.setUserChatStatus(request.userName, chatId, ChatMembershipStatus.NOT_MEMBER)
+                    ServerStorage.setUserChatStatus(
+                        request.userId,
+                        chatId,
+                        ChatMembershipStatus.NOT_MEMBER
+                    )
 
                     // Send JOIN_REQUEST_STATUS_UPDATE event to all group members except the admin who made the action
                     ServerStorage.notifyGroupMembersOfJoinRequestStatus(

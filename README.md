@@ -111,18 +111,25 @@ The application uses an event-driven architecture where:
 
 ## API Endpoints
 
-### Backend API (`http://localhost:8080`)
-
-- `GET /api/chats` - Get all chats
-- `POST /api/chats` - Create a new chat
-- `POST /api/chats/{chatId}/messages` - Send a message
-- `GET /api/chats/{chatId}/join-requests` - Get join requests for a chat
-- `POST /api/users/{userId}/chats/{chatId}/join-request` - Request to join a chat
-- `POST /api/join-requests/{requestId}/accept` - Accept a join request
-- `POST /api/join-requests/{requestId}/decline` - Decline a join request
-- `GET /api/users/{userId}/chats` - Get chats with user status
+### User Management
+- `POST /api/users` - Create a new user with name (returns userId)
 - `POST /api/users/{userId}/connect` - Connect user and receive existing groups
 - `GET /api/users/{userId}/events` - Get events for a user
+
+### Chat Management
+- `GET /api/chats` - Get all chats
+- `GET /api/chats/{chatId}` - Get specific chat
+- `POST /api/chats` - Create new chat (requires X-User-ID header)
+- `POST /api/chats/{chatId}/messages` - Send message to chat (requires X-User-ID header)
+
+### Join Requests
+- `POST /api/chats/join-request` - Request to join a chat (includes userId in request body)
+- `POST /api/join-requests/{requestId}/accept` - Accept join request (includes approverId in request body)
+- `POST /api/join-requests/{requestId}/decline` - Decline join request
+
+### User Status
+- `GET /api/users/{userId}/chats` - Get chats with user status
+- `GET /api/users/{userId}/chats/{chatId}/status` - Get user status for specific chat
 
 ## Usage Guide
 

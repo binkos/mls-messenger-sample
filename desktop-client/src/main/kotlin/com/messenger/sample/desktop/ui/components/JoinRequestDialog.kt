@@ -26,6 +26,7 @@ import java.util.Locale
 @Composable
 fun JoinRequestDialog(
     joinRequest: JoinRequest,
+    groupName: String? = null,
     onAccept: (JoinRequest) -> Unit,
     onDecline: (JoinRequest) -> Unit,
     onDismiss: () -> Unit
@@ -94,7 +95,7 @@ fun JoinRequestDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = joinRequest.groupId,
+                                text = groupName ?: joinRequest.groupId,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium
                             )

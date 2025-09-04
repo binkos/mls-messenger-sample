@@ -184,12 +184,12 @@ class HttpClientService {
     suspend fun sendMessage(chatId: String, messageText: String) {
         try {
             // MARK: MLS CODE HERE
-            val userId = _currentDesktopUserId.value?.userId ?: "Unknown User"
             val group = groups[chatId] ?: throw Exception("Group not found for chat $chatId")
             val message = group.encryptApplicationMessage(messageText.toByteArray())
                 .use { messageToBytes(it) }
             val request = SendMessageRequest(
-                userName = userId,
+                userId = _currentDesktopUserId.value?.userId ?: "Unknown User",
+                userName = _currentDesktopUserId.value?.userName ?: "Unknown User",
                 message = Base64.getEncoder().encodeToString(message)
                     .also { println("SEND Message - $it") }
             )
@@ -293,7 +293,7 @@ class HttpClientService {
             val bytes = messageToBytes(keyPackage)
 
             val request = CreateJoinRequestRequest(
-                userName = userId,
+                userId = userId,
                 keyPackage = Base64.getEncoder().encodeToString(bytes).also { println(it) },
                 groupId = chatId
             )
@@ -336,6 +336,7 @@ class HttpClientService {
 
             val acceptRequest = AcceptJoinRequestRequest(
                 approverId = _currentDesktopUserId.value?.userId ?: "",
+                chatId = request.groupId,
                 welcomeMessage = Base64.getEncoder().encodeToString(welcomeMessageBytes),
                 commitMessage = Base64.getEncoder().encodeToString(commitMessageBytes)
             )
@@ -444,8 +445,10 @@ class HttpClientService {
                     val chatId = event.chatId ?: return@forEach
                     val requesterName = event.data["requesterName"] ?: return@forEach
                     val requestId = event.data["requestId"] ?: return@forEach
+                    val requesterUserId = event.data["requesterUserId"] ?: return@forEach
                     val joinRequest = JoinRequest(
                         id = requestId,
+                        userId = requesterUserId,
                         userName = requesterName,
                         keyPackage = event.data["keyPackage"] ?: "",
                         groupId = chatId,
@@ -512,16 +515,23 @@ class HttpClientService {
                 EventType.JOIN_REQUEST_STATUS_UPDATE -> {
                     val chatId = event.chatId ?: return@forEach
                     val requestId = event.data["requestId"] ?: return@forEach
-                    val requesterName = event.data["requesterName"] ?: return@forEach
-                    val isAccepted = event.data["isAccepted"]?.toBoolean() ?: return@forEach
+                    val isAccepted = event.data["commitMessage"] != null
 
                     // Remove the join request from local state
                     removeJoinRequestById(chatId, requestId)
 
                     if (isAccepted) {
-                        println("✅ Join request from $requesterName was accepted by another member")
+                        val commitMessageBytes =
+                            Base64.getDecoder().decode(event.data["commitMessage"])
+                        val commitMessage = messageFromBytes(commitMessageBytes)
+                        groups[chatId]?.apply {
+                            processIncomingMessage(commitMessage)
+                            writeToStorage()
+                            groups[chatId] = this
+                        }
+                        println("✅ Join request was accepted by another member")
                     } else {
-                        println("❌ Join request from $requesterName was declined by another member")
+                        println("❌ Join request was declined by another member")
                     }
                 }
 
@@ -539,7 +549,7 @@ class HttpClientService {
                     val messageDataByteArray = Base64.getDecoder().decode(event.data["message"])
                     val message = messageFromBytes(messageDataByteArray)
 
-                    if (event.data["userName"] == currentDesktopUserId.value?.userId) return@forEach
+                    if (event.data["userId"] == currentDesktopUserId.value?.userId) return@forEach
                     groups[chatId]?.processIncomingMessage(message)?.use { receivedMessage ->
                         val messageText = when (receivedMessage) {
                             is ReceivedMessage.ApplicationMessage -> {
@@ -553,6 +563,7 @@ class HttpClientService {
 
                         val chatMessage = ChatMessage(
                             id = event.data["id"] ?: return@forEach,
+                            userId = event.data["userId"] ?: return@forEach,
                             userName = event.data["userName"] ?: return@forEach,
                             message = messageText,
                             timestamp = event.data["timestamp"]?.toLong() ?: return@forEach,

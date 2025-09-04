@@ -69,7 +69,7 @@ private fun MessageItem(
             modifier = Modifier.padding(12.dp)
         ) {
             Text(
-                text = message.senderId,
+                text = "User ${message.senderId}", // Changed to be more user-friendly
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -56,13 +56,14 @@ object ServerStorage {
             val groups = it.value
 
             val isGroupMember = groups.any { group -> group.chatId == chatId }
-            if (it.key != message.userName && isGroupMember) {
+            if (userId != message.userId && isGroupMember) {
                 createEvent(
                     userId = userId,
                     type = EventType.MESSAGE_SENT,
                     chatId = chatId,
                     data = mapOf(
                         "id" to message.id,
+                        "userId" to message.userId,
                         "userName" to message.userName,
                         "message" to message.message,
                         "timestamp" to message.timestamp.toString()
@@ -94,6 +95,7 @@ object ServerStorage {
                 type = EventType.JOIN_REQUESTED,
                 chatId = joinRequest.groupId,
                 data = mapOf(
+                    "requesterUserId" to joinRequest.userId,
                     "requesterName" to joinRequest.userName,
                     "requestId" to joinRequest.id,
                     "keyPackage" to joinRequest.keyPackage
